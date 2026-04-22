@@ -6,6 +6,7 @@
 
 /data/account-run-history.txt
 /data/account-run-history.json
+/data/mail163-helper.log
 .npm-test.log
 .omx/
 /node_modules

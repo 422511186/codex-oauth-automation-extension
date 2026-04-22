@@ -276,3 +276,62 @@ test('step 8 does not rerun step 7 when verification submit lands on add-phone',
   assert.equal(calls.rerunStep7, 0);
   assert.ok(!calls.logs.some(({ message }) => /准备从步骤 7 重新开始/.test(message)));
 });
+test('step 8 uses the recorded 163 login verification time with a safety buffer', async () => {
+  let capturedOptions = null;
+  const realDateNow = Date.now;
+  Date.now = () => 123456;
+
+  const executor = api.createStep8Executor({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    confirmCustomVerificationStepBypass: async () => {},
+    ensureStep8VerificationPageReady: async () => ({ state: 'verification_page', displayedEmail: 'user@163.com' }),
+    rerunStep7ForStep8Recovery: async () => {},
+    getOAuthFlowRemainingMs: async () => 5000,
+    getOAuthFlowStepTimeoutMs: async (defaultTimeoutMs) => Math.min(defaultTimeoutMs, 5000),
+    getMailConfig: () => ({
+      provider: '163',
+      label: '163 邮箱',
+      source: 'mail-163',
+      url: 'https://mail.163.com',
+      navigateOnReuse: false,
+    }),
+    getState: async () => ({ email: 'user@163.com', password: 'secret' }),
+    getTabId: async (sourceName) => (sourceName === 'signup-page' ? 1 : 2),
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    MAIL163_PROVIDER: '163',
+    isTabAlive: async () => true,
+    isVerificationMailPollingError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    resolveVerificationStep: async (_step, _state, _mail, options) => {
+      capturedOptions = options;
+    },
+    reuseOrCreateTab: async () => {},
+    setState: async () => {},
+    setStepStatus: async () => {},
+    shouldUseCustomRegistrationEmail: () => false,
+    STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS: 25000,
+    STEP7_MAIL_POLLING_RECOVERY_MAX_ATTEMPTS: 8,
+    throwIfStopped: () => {},
+  });
+
+  try {
+    await executor.executeStep8({
+      email: 'user@163.com',
+      password: 'secret',
+      oauthUrl: 'https://oauth.example/latest',
+      loginVerificationRequestedAt: 100000,
+    });
+  } finally {
+    Date.now = realDateNow;
+  }
+
+  assert.equal(capturedOptions.filterAfterTimestamp, 85000);
+  assert.equal(capturedOptions.resendIntervalMs, 0);
+  assert.equal(capturedOptions.targetEmail, 'user@163.com');
+});

@@ -1904,12 +1904,13 @@ async function requestMail163Helper(path, payload = null, options = {}) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data?.ok === false) {
-      throw new Error(String(data?.error || data?.message || `163 helper 请求失败：${response.status}`));
+      const logSuffix = data?.logPath ? `；helper 日志：${data.logPath}` : '';
+      throw new Error(String(data?.error || data?.message || `163 helper ${path} 请求失败：${response.status}`) + logSuffix);
     }
     return data;
   } catch (err) {
     if (err?.name === 'AbortError') {
-      throw new Error(`163 helper 请求超时（>${Math.round(timeoutMs / 1000)} 秒）`);
+      throw new Error(`163 helper ${path} 请求超时（>${Math.round(timeoutMs / 1000)} 秒）`);
     }
     throw err;
   } finally {
@@ -1960,10 +1961,16 @@ async function pollMail163VerificationCode(step, state, pollPayload = {}) {
     timeoutMs: Math.max(15000, (Math.max(1, Number(pollPayload.maxAttempts) || 5) * Math.max(1000, Number(pollPayload.intervalMs) || 3000)) + 15000),
   });
 
+  if (response.usedTimeFallback) {
+    await addLog(`步骤 ${step}：163 邮箱 helper 使用时间回退命中了较早收到的验证码，请留意 helper 日志确认邮件时间。`, 'warn');
+  }
+
   return {
     code: String(response.code || '').trim(),
     emailTimestamp: Number(response.emailTimestamp || Date.now()) || Date.now(),
     mailId: String(response.mailId || ''),
+    usedTimeFallback: Boolean(response.usedTimeFallback),
+    selectionSource: String(response.selectionSource || ''),
   };
 }
 
@@ -6035,6 +6042,17 @@ async function ensureAutoEmailReady(targetRun, totalRuns, attemptRuns) {
     return purchase.email_address;
   }
 
+  if (isMail163Provider(currentState)) {
+    const account = await ensureMail163AccountForFlow({
+      allowAllocate: true,
+      preferredAccountId: currentState.currentMail163AccountId || null,
+      lockedAccountId: currentState.autoRunLockedMail163AccountId || null,
+      markRunning: true,
+    });
+    await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：已分配 163 号源 ${account.email}（第 ${attemptRuns} 次尝试）===`, 'ok');
+    return account.email;
+  }
+
   if (isGeneratedAliasProvider(currentState)) {
     if (currentState.mailProvider === GMAIL_PROVIDER) {
       if (!currentState.emailPrefix) {
@@ -6130,6 +6148,17 @@ async function ensureAutoEmailReady(targetRun, totalRuns, attemptRuns) {
     const purchase = await ensureLuckmailPurchaseForFlow({ allowReuse: true });
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：LuckMail 邮箱已就绪：${purchase.email_address}（第 ${attemptRuns} 次尝试）===`, 'ok');
     return purchase.email_address;
+  }
+
+  if (isMail163Provider(currentState)) {
+    const account = await ensureMail163AccountForFlow({
+      allowAllocate: true,
+      preferredAccountId: currentState.currentMail163AccountId || null,
+      lockedAccountId: currentState.autoRunLockedMail163AccountId || null,
+      markRunning: true,
+    });
+    await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：已分配 163 号源 ${account.email}（第 ${attemptRuns} 次尝试）===`, 'ok');
+    return account.email;
   }
 
   if (isGeneratedAliasProvider(currentState)) {

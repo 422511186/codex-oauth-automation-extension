@@ -2,6 +2,7 @@
   root.MultiPageBackgroundStep4 = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundStep4Module() {
   const MAIL_2925_FILTER_LOOKBACK_MS = 10 * 60 * 1000;
+  const MAIL163_FILTER_BUFFER_MS = 15 * 1000;
 
   function createStep4Executor(deps = {}) {
     const {
@@ -52,9 +53,12 @@
       if (mail.error) throw new Error(mail.error);
 
       const stepStartedAt = Date.now();
+      const mail163RequestedAt = Number(state?.signupVerificationRequestedAt || 0);
       const verificationFilterAfterTimestamp = mail.provider === '2925'
         ? Math.max(0, stepStartedAt - MAIL_2925_FILTER_LOOKBACK_MS)
-        : stepStartedAt;
+        : (mail.provider === MAIL163_PROVIDER && mail163RequestedAt > 0
+          ? Math.max(0, mail163RequestedAt - MAIL163_FILTER_BUFFER_MS)
+          : stepStartedAt);
       const verificationSessionKey = `4:${stepStartedAt}`;
       const signupTabId = await getTabId('signup-page');
 
