@@ -1,4 +1,5 @@
 /docs/md
+/dist/
 
 /.github
 /_metadata/
@@ -10,3 +11,4 @@
 .npm-test.log
 .omx/
 /node_modules
+scripts/build-crx.sh
