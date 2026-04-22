@@ -1,4 +1,14 @@
 (function attachSidepanelMail163Manager(globalScope) {
+  const MAIL163_FILTER_VALUES = new Set(['all', 'idle', 'running', 'success', 'failed', 'stopped']);
+  const MAIL163_FILTER_LABELS = {
+    all: '全部',
+    idle: '未执行',
+    running: '执行中',
+    success: '成功',
+    failed: '失败',
+    stopped: '已停止',
+  };
+
   function createMail163Manager(context = {}) {
     const {
       state,
@@ -16,6 +26,7 @@
 
     let actionInFlight = false;
     let listExpanded = false;
+    let activeFilter = 'all';
 
     function getMail163Accounts(currentState = state.getLatestState()) {
       return helpers.getMail163Accounts(currentState);
@@ -25,38 +36,122 @@
       return String(currentState?.currentMail163AccountId || '');
     }
 
+    function normalizeFilter(value) {
+      const normalized = String(value || '').trim().toLowerCase();
+      return MAIL163_FILTER_VALUES.has(normalized) ? normalized : 'all';
+    }
+
+    function getAccountStatus(account) {
+      const normalized = String(account?.status || '').trim().toLowerCase();
+      return MAIL163_FILTER_VALUES.has(normalized) && normalized !== 'all'
+        ? normalized
+        : 'idle';
+    }
+
+    function getFilteredMail163Accounts(currentState = state.getLatestState()) {
+      const accounts = getMail163Accounts(currentState);
+      if (activeFilter === 'all') {
+        return accounts;
+      }
+      return accounts.filter((account) => getAccountStatus(account) === activeFilter);
+    }
+
+    function getMail163FilterCounts(currentState = state.getLatestState()) {
+      const counts = {
+        all: 0,
+        idle: 0,
+        running: 0,
+        success: 0,
+        failed: 0,
+        stopped: 0,
+      };
+
+      const accounts = getMail163Accounts(currentState);
+      counts.all = accounts.length;
+      for (const account of accounts) {
+        counts[getAccountStatus(account)] += 1;
+      }
+      return counts;
+    }
+
     function getBulkActionText(count) {
       const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
       return normalizedCount > 0 ? `全部删除（${normalizedCount}）` : '全部删除';
     }
 
-    function getListToggleText(expanded, count) {
-      const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+    function getListToggleText(expanded, totalCount, visibleCount = totalCount) {
+      const normalizedTotal = Number.isFinite(Number(totalCount)) ? Math.max(0, Number(totalCount)) : 0;
+      const normalizedVisible = Number.isFinite(Number(visibleCount)) ? Math.max(0, Number(visibleCount)) : 0;
       const prefix = expanded ? '收起列表' : '展开列表';
-      return normalizedCount > 0 ? `${prefix}（${normalizedCount}）` : prefix;
+      if (normalizedTotal <= 0) {
+        return prefix;
+      }
+      if (normalizedVisible !== normalizedTotal) {
+        return `${prefix}（${normalizedVisible}/${normalizedTotal}）`;
+      }
+      return `${prefix}（${normalizedVisible}）`;
     }
 
-    function updateMail163ListViewport() {
-      const count = getMail163Accounts().length;
+    function getExportActionText(count) {
+      const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+      return normalizedCount > 0 ? `导出 TXT（${normalizedCount}）` : '导出 TXT';
+    }
+
+    function updateMail163FilterButtons(currentState = state.getLatestState()) {
+      const filterButtons = Array.isArray(dom.mail163FilterButtons) ? dom.mail163FilterButtons : [];
+      if (!filterButtons.length) {
+        return;
+      }
+
+      const counts = getMail163FilterCounts(currentState);
+      for (const button of filterButtons) {
+        const filterValue = normalizeFilter(button?.dataset?.mail163Filter);
+        const labelBase = String(
+          button?.dataset?.filterLabelBase
+          || button?.textContent
+          || MAIL163_FILTER_LABELS[filterValue]
+          || ''
+        ).trim();
+        if (button?.dataset) {
+          button.dataset.filterLabelBase = labelBase;
+        }
+        const count = counts[filterValue] || 0;
+        button.textContent = count > 0 ? `${labelBase}（${count}）` : labelBase;
+        button.classList.toggle('is-active', filterValue === activeFilter);
+        button.setAttribute?.('aria-pressed', String(filterValue === activeFilter));
+        button.disabled = counts.all === 0 && filterValue !== 'all';
+      }
+    }
+
+    function updateMail163ListViewport(currentState = state.getLatestState()) {
+      const totalCount = getMail163Accounts(currentState).length;
+      const visibleCount = getFilteredMail163Accounts(currentState).length;
+
       if (dom.btnDeleteAllMail163Accounts) {
-        dom.btnDeleteAllMail163Accounts.textContent = getBulkActionText(count);
-        dom.btnDeleteAllMail163Accounts.disabled = count === 0;
+        dom.btnDeleteAllMail163Accounts.textContent = getBulkActionText(totalCount);
+        dom.btnDeleteAllMail163Accounts.disabled = totalCount === 0;
       }
       if (dom.btnToggleMail163List) {
-        dom.btnToggleMail163List.textContent = getListToggleText(listExpanded, count);
+        dom.btnToggleMail163List.textContent = getListToggleText(listExpanded, totalCount, visibleCount);
         dom.btnToggleMail163List.setAttribute('aria-expanded', String(listExpanded));
-        dom.btnToggleMail163List.disabled = count === 0;
+        dom.btnToggleMail163List.disabled = totalCount === 0;
+      }
+      if (dom.btnExportMail163Accounts) {
+        dom.btnExportMail163Accounts.textContent = getExportActionText(visibleCount);
+        dom.btnExportMail163Accounts.disabled = visibleCount === 0;
       }
       if (dom.mail163ListShell) {
         dom.mail163ListShell.classList.toggle('is-expanded', listExpanded);
         dom.mail163ListShell.classList.toggle('is-collapsed', !listExpanded);
       }
+
+      updateMail163FilterButtons(currentState);
     }
 
     function setMail163ListExpanded(expanded, options = {}) {
       const { persist = true } = options;
       listExpanded = Boolean(expanded);
-      updateMail163ListViewport();
+      updateMail163ListViewport(state.getLatestState());
       if (persist) {
         localStorage.setItem(expandedStorageKey, listExpanded ? '1' : '0');
       }
@@ -87,7 +182,8 @@
       renderMail163Accounts();
       if (dom.selectMailProvider?.value === '163' && dom.inputEmail) {
         const latestState = state.getLatestState();
-        const currentAccount = getMail163Accounts(latestState).find((account) => account.id === getCurrentMail163AccountId(latestState)) || null;
+        const currentAccount = getMail163Accounts(latestState)
+          .find((account) => account.id === getCurrentMail163AccountId(latestState)) || null;
         dom.inputEmail.value = String(currentAccount?.email || latestState?.email || '');
       }
     }
@@ -128,7 +224,7 @@
     }
 
     function getStatusLabel(account) {
-      switch (String(account?.status || '').trim().toLowerCase()) {
+      switch (getAccountStatus(account)) {
         case 'running':
           return '执行中';
         case 'success':
@@ -143,8 +239,8 @@
     }
 
     function getStatusClass(account) {
-      const status = String(account?.status || '').trim().toLowerCase();
-      if (!status || status === 'idle') {
+      const status = getAccountStatus(account);
+      if (status === 'idle') {
         return 'status-pending';
       }
       if (status === 'success') {
@@ -157,6 +253,25 @@
         return 'status-used';
       }
       return `status-${status}`;
+    }
+
+    function getQuickStatusAction(account) {
+      const status = getAccountStatus(account);
+      if (status === 'failed' || status === 'idle') {
+        return {
+          action: 'mark-success',
+          buttonClass: 'btn btn-outline btn-sm',
+          label: '标记成功',
+        };
+      }
+      if (status === 'success') {
+        return {
+          action: 'mark-failed',
+          buttonClass: 'btn btn-outline btn-sm',
+          label: '标记失败',
+        };
+      }
+      return null;
     }
 
     function clearMail163Form() {
@@ -181,20 +296,47 @@
         sync() {},
       };
 
+    function formatExportTimestamp(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hour = String(date.getHours()).padStart(2, '0');
+      const minute = String(date.getMinutes()).padStart(2, '0');
+      const second = String(date.getSeconds()).padStart(2, '0');
+      return `${year}${month}${day}-${hour}${minute}${second}`;
+    }
+
+    function getExportableMail163Accounts(currentState = state.getLatestState()) {
+      return getFilteredMail163Accounts(currentState).filter((account) => account?.email && account?.authCode);
+    }
+
     function renderMail163Accounts() {
       if (!dom.mail163AccountsList) return;
 
       const latestState = state.getLatestState();
-      const accounts = getMail163Accounts(latestState);
+      const allAccounts = getMail163Accounts(latestState);
+      const accounts = getFilteredMail163Accounts(latestState);
       const currentId = getCurrentMail163AccountId(latestState);
 
-      if (!accounts.length) {
+      updateMail163ListViewport(latestState);
+
+      if (!allAccounts.length) {
         dom.mail163AccountsList.innerHTML = '<div class="hotmail-empty">还没有 163 号源，先添加一条再导入流程。</div>';
-        updateMail163ListViewport();
+        return;
+      }
+
+      if (!accounts.length) {
+        dom.mail163AccountsList.innerHTML = '<div class="hotmail-empty">当前筛选下没有 163 号源。</div>';
         return;
       }
 
       dom.mail163AccountsList.innerHTML = accounts.map((account) => `
+        ${(() => {
+          const quickStatusAction = getQuickStatusAction(account);
+          const quickStatusButton = quickStatusAction
+            ? `<button class="${helpers.escapeHtml(quickStatusAction.buttonClass)}" type="button" data-account-action="${helpers.escapeHtml(quickStatusAction.action)}" data-account-id="${helpers.escapeHtml(account.id)}">${helpers.escapeHtml(quickStatusAction.label)}</button>`
+            : '';
+          return `
         <div class="hotmail-account-item${account.id === currentId ? ' is-current' : ''}">
           <div class="hotmail-account-top">
             <div class="hotmail-account-title-row">
@@ -221,13 +363,14 @@
           <div class="hotmail-account-actions">
             <button class="btn btn-outline btn-sm" type="button" data-account-action="select" data-account-id="${helpers.escapeHtml(account.id)}">使用此账号</button>
             <button class="btn btn-outline btn-sm" type="button" data-account-action="test" data-account-id="${helpers.escapeHtml(account.id)}">测试</button>
+            ${quickStatusButton}
             <button class="btn btn-primary btn-sm" type="button" data-account-action="retry" data-account-id="${helpers.escapeHtml(account.id)}">重试</button>
             <button class="btn btn-ghost btn-sm" type="button" data-account-action="delete" data-account-id="${helpers.escapeHtml(account.id)}">删除</button>
           </div>
         </div>
+      `;
+        })()}
       `).join('');
-
-      updateMail163ListViewport();
     }
 
     async function handleAddMail163Account() {
@@ -335,6 +478,35 @@
       }
     }
 
+    async function handleExportMail163Accounts() {
+      if (actionInFlight) return;
+      if (typeof helpers.downloadTextFile !== 'function') {
+        helpers.showToast('导出能力未加载，请刷新扩展后重试。', 'error');
+        return;
+      }
+
+      const latestState = state.getLatestState();
+      const exportableAccounts = getExportableMail163Accounts(latestState);
+      if (!exportableAccounts.length) {
+        helpers.showToast('当前筛选结果没有可导出的 163 号源。', 'warn');
+        return;
+      }
+
+      const fileContent = exportableAccounts
+        .map((account) => `${account.email} ${account.authCode}`)
+        .join('\n');
+      const fileName = `mail163-accounts-${activeFilter}-${formatExportTimestamp()}.txt`;
+      helpers.downloadTextFile(fileContent, fileName, 'text/plain;charset=utf-8');
+
+      const filteredCount = getFilteredMail163Accounts(latestState).length;
+      const skippedCount = Math.max(0, filteredCount - exportableAccounts.length);
+      if (skippedCount > 0) {
+        helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源，跳过 ${skippedCount} 条缺少邮箱或授权码的记录`, 'success', 2200);
+        return;
+      }
+      helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源`, 'success', 2200);
+    }
+
     async function deleteAllMail163Accounts() {
       const accounts = getMail163Accounts();
       if (!accounts.length) {
@@ -394,6 +566,47 @@
           if (!targetAccount?.email) throw new Error('未找到可复制的邮箱地址。');
           await helpers.copyTextToClipboard(targetAccount.email);
           helpers.showToast(`已复制 ${targetAccount.email}`, 'success', 1800);
+          return;
+        }
+
+        if (action === 'mark-success' || action === 'mark-failed') {
+          const now = Date.now();
+          const response = await runtime.sendMessage({
+            type: 'PATCH_MAIL163_ACCOUNT',
+            source: 'sidepanel',
+            payload: {
+              accountId,
+              updates: action === 'mark-success'
+                ? {
+                  status: 'success',
+                  success: true,
+                  used: true,
+                  lastError: '',
+                  lastResultAt: now,
+                  lastUsedAt: now,
+                }
+                : {
+                  status: 'failed',
+                  success: false,
+                  used: false,
+                  lastError: '手动标记为失败',
+                  lastResultAt: now,
+                },
+            },
+          });
+          if (response?.error) throw new Error(response.error);
+
+          applyMail163AccountMutation(response.account, {
+            preserveCurrentSelection: true,
+            syncEmailWhenSelected: true,
+          });
+          helpers.showToast(
+            action === 'mark-success'
+              ? `已将 163 号源标记为成功：${response.account.email}`
+              : `已将 163 号源标记为失败：${response.account.email}`,
+            'success',
+            2200
+          );
           return;
         }
 
@@ -517,9 +730,29 @@
           helpers.showToast(err.message, 'error');
         } finally {
           actionInFlight = false;
-          updateMail163ListViewport();
+          updateMail163ListViewport(state.getLatestState());
         }
       });
+
+      dom.btnExportMail163Accounts?.addEventListener('click', () => {
+        handleExportMail163Accounts().catch((err) => {
+          helpers.showToast(`导出失败：${err.message}`, 'error');
+        });
+      });
+
+      const filterButtons = Array.isArray(dom.mail163FilterButtons) ? dom.mail163FilterButtons : [];
+      for (const button of filterButtons) {
+        button.dataset.filterLabelBase = String(button.textContent || MAIL163_FILTER_LABELS.all).trim();
+        button.setAttribute('aria-pressed', String(normalizeFilter(button.dataset.mail163Filter) === activeFilter));
+        button.addEventListener('click', () => {
+          const nextFilter = normalizeFilter(button.dataset.mail163Filter);
+          if (nextFilter === activeFilter) {
+            return;
+          }
+          activeFilter = nextFilter;
+          renderMail163Accounts();
+        });
+      }
 
       dom.btnLoadMail163File?.addEventListener('click', handleLoadMail163File);
       dom.inputMail163ImportFile?.addEventListener('change', () => {
@@ -531,6 +764,7 @@
       dom.btnImportMail163Accounts?.addEventListener('click', handleImportMail163Accounts);
       dom.mail163AccountsList?.addEventListener('click', handleAccountListClick);
       formController.sync();
+      updateMail163ListViewport(state.getLatestState());
     }
 
     return {

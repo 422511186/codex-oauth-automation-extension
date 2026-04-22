@@ -462,6 +462,7 @@
         </div>
         <div class="section-mini-actions">
           <button id="btn-toggle-mail163-form" class="btn btn-outline btn-xs" type="button" aria-expanded="false">添加账号</button>
+          <button id="btn-export-mail163-accounts" class="btn btn-ghost btn-xs" type="button">导出 TXT</button>
           <button id="btn-delete-all-mail163-accounts" class="btn btn-ghost btn-xs" type="button">全部删除</button>
           <button id="btn-toggle-mail163-list" class="btn btn-ghost btn-xs" type="button" aria-expanded="false">展开列表</button>
         </div>
@@ -469,6 +470,17 @@
       <div class="data-row">
         <span class="data-label">本地 Helper</span>
         <input type="text" id="input-mail163-helper-base-url" class="data-input mono" placeholder="http://127.0.0.1:17374" />
+      </div>
+      <div class="data-row mail163-filter-row">
+        <span class="data-label">分类过滤</span>
+        <div id="mail163-filter-group" class="choice-group mail163-filter-group" role="group" aria-label="163 号源分类过滤">
+          <button type="button" class="choice-btn is-active" data-mail163-filter="all">全部</button>
+          <button type="button" class="choice-btn" data-mail163-filter="idle">未执行</button>
+          <button type="button" class="choice-btn" data-mail163-filter="running">执行中</button>
+          <button type="button" class="choice-btn" data-mail163-filter="success">成功</button>
+          <button type="button" class="choice-btn" data-mail163-filter="failed">失败</button>
+          <button type="button" class="choice-btn" data-mail163-filter="stopped">已停止</button>
+        </div>
       </div>
       <div id="mail163-form-shell" class="account-pool-form-shell" hidden>
         <div class="data-row">

@@ -165,6 +165,7 @@ const inputMail163AuthCode = document.getElementById('input-mail163-auth-code');
 const inputMail163Import = document.getElementById('input-mail163-import');
 const inputMail163ImportFile = document.getElementById('input-mail163-import-file');
 const btnAddMail163Account = document.getElementById('btn-add-mail163-account');
+const btnExportMail163Accounts = document.getElementById('btn-export-mail163-accounts');
 const btnLoadMail163File = document.getElementById('btn-load-mail163-file');
 const btnImportMail163Accounts = document.getElementById('btn-import-mail163-accounts');
 const btnDeleteAllMail163Accounts = document.getElementById('btn-delete-all-mail163-accounts');
@@ -173,6 +174,7 @@ const btnToggleMail163List = document.getElementById('btn-toggle-mail163-list');
 const mail163FormShell = document.getElementById('mail163-form-shell');
 const mail163ListShell = document.getElementById('mail163-list-shell');
 const mail163AccountsList = document.getElementById('mail163-accounts-list');
+const mail163FilterButtons = Array.from(document.querySelectorAll('[data-mail163-filter]'));
 const inputMail2925Email = document.getElementById('input-mail2925-email');
 const inputMail2925Password = document.getElementById('input-mail2925-password');
 const inputMail2925Import = document.getElementById('input-mail2925-import');
@@ -3302,6 +3304,7 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
   },
   dom: {
     btnAddMail163Account,
+    btnExportMail163Accounts,
     btnDeleteAllMail163Accounts,
     btnImportMail163Accounts,
     btnLoadMail163File,
@@ -3313,12 +3316,14 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
     inputMail163Import,
     inputMail163ImportFile,
     mail163AccountsList,
+    mail163FilterButtons,
     mail163FormShell,
     mail163ListShell,
     selectMailProvider,
   },
   helpers: {
     copyTextToClipboard,
+    downloadTextFile,
     escapeHtml,
     getMail163Accounts,
     openConfirmModal,

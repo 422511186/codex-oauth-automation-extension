@@ -115,12 +115,12 @@ def _send_client_id(imap):
   try:
     typ, data = imap._simple_command("ID", payload)
     _log_info(
-      f"imap id sent status={typ} state={getattr(imap, 'state', '')} "
+      f"已发送 IMAP ID：status={typ} state={getattr(imap, 'state', '')} "
       f"response={_decode_imap_atoms(data)}"
     )
     return typ, data
   except Exception as exc:
-    raise RuntimeError(f"IMAP ID command failed: {exc}") from exc
+    raise RuntimeError(f"IMAP ID 命令失败：{exc}") from exc
 
 
 def _select_mailbox(imap, mailbox: str = "INBOX"):
@@ -137,7 +137,7 @@ def _select_mailbox(imap, mailbox: str = "INBOX"):
     try:
       typ, data = imap.select(candidate) if candidate else imap.select()
     except Exception as exc:
-      last_failure = f"select({candidate or '<default>'}) raised: {exc}"
+      last_failure = f"select({candidate or '<default>'}) 抛错：{exc}"
       continue
 
     if typ == "OK" and getattr(imap, "state", "") == "SELECTED":
@@ -150,9 +150,9 @@ def _select_mailbox(imap, mailbox: str = "INBOX"):
     )
 
   mailbox_list = _list_mailboxes(imap)
-  mailbox_text = "; ".join(mailbox_list[:20]) if mailbox_list else "unavailable"
+  mailbox_text = "; ".join(mailbox_list[:20]) if mailbox_list else "不可用"
   raise RuntimeError(
-    f"IMAP select mailbox failed: {last_failure}; availableMailboxes={mailbox_text}"
+    f"IMAP 选择邮箱失败：{last_failure}；availableMailboxes={mailbox_text}"
   )
 
 
@@ -181,7 +181,7 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     handler.end_headers()
     handler.wfile.write(body)
   except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-    _log_error("client disconnected before helper response could be written")
+    _log_error("客户端已断开，helper 响应未能写回")
 
 
 def _read_json(handler: BaseHTTPRequestHandler) -> dict:
@@ -360,7 +360,7 @@ def _poll_code_via_imap(
   imap = IMAP4_SSL(IMAP_HOST, IMAP_PORT, ssl_context=context)
   try:
     _log_info(
-      f"poll start email={_mask_email(email_addr)} "
+      f"开始轮询验证码 email={_mask_email(email_addr)} "
       f"filterAfter={int(filter_after_timestamp_ms or 0)} "
       f"maxAttempts={max_attempts} intervalMs={interval_ms}"
     )
@@ -369,7 +369,7 @@ def _poll_code_via_imap(
     selected_mailbox = _select_mailbox(imap, "INBOX")
     mailbox_targets = _parse_mailbox_targets(imap)
     _log_info(
-      f"imap login/select ok email={_mask_email(email_addr)} mailbox={selected_mailbox} "
+      f"IMAP 登录与选箱成功 email={_mask_email(email_addr)} mailbox={selected_mailbox} "
       f"scanTargets={[item['label'] + ':' + item['name'] for item in mailbox_targets]}"
     )
 
@@ -381,14 +381,14 @@ def _poll_code_via_imap(
           typ, data = imap.search(None, "ALL")
           if typ != "OK":
             raise RuntimeError(
-              f"IMAP search failed: status={typ} state={getattr(imap, 'state', '')} "
+              f"IMAP 搜索失败：status={typ} state={getattr(imap, 'state', '')} "
               f"response={_decode_imap_atoms(data)} mailbox={selected_mailbox}"
             )
 
           ids = _extract_search_ids(data)
           ids = ids[-max_messages:][::-1]
           _log_info(
-            f"poll attempt={attempt + 1}/{max_attempts} email={_mask_email(email_addr)} "
+            f"轮询第 {attempt + 1}/{max_attempts} 次 email={_mask_email(email_addr)} "
             f"mailbox={mailbox_target['label']} matchedCandidates={len(ids)}"
           )
 
@@ -480,7 +480,7 @@ def _poll_code_via_imap(
               continue
 
             _log_info(
-              f"poll success email={_mask_email(email_addr)} mailbox={mailbox_target['label']} "
+              f"轮询成功 email={_mask_email(email_addr)} mailbox={mailbox_target['label']} "
               f"mailId={msg_id.decode('ascii', errors='ignore') if isinstance(msg_id, (bytes, bytearray)) else msg_id} "
               f"code={code} source={extraction_source or '-'}"
             )
@@ -504,19 +504,19 @@ def _poll_code_via_imap(
             selected_mailbox = _select_mailbox(imap, "INBOX")
             mailbox_targets = _parse_mailbox_targets(imap)
             _log_info(
-              f"imap reconnect/select ok email={_mask_email(email_addr)} mailbox={selected_mailbox} "
+              f"IMAP 重连并选箱成功 email={_mask_email(email_addr)} mailbox={selected_mailbox} "
               f"scanTargets={[item['label'] + ':' + item['name'] for item in mailbox_targets]}"
             )
           time.sleep(max(0.5, interval_ms / 1000.0))
       except Exception as e:
         last_error = e
         _log_error(
-          f"poll attempt failed email={_mask_email(email_addr)} "
-          f"attempt={attempt + 1}/{max_attempts} detail={e}"
+          f"轮询第 {attempt + 1}/{max_attempts} 次失败 email={_mask_email(email_addr)} "
+          f"detail={e}"
         )
         if debug_candidates:
           _log_info(
-            "poll debug candidates: "
+            "轮询调试候选："
             + " || ".join(
               (
                 f"mailbox={item['mailbox']} "
@@ -546,7 +546,7 @@ def _poll_code_via_imap(
 
   if debug_candidates:
     _log_info(
-      "poll final candidates: "
+      "轮询结束候选："
       + " || ".join(
         (
           f"mailbox={item['mailbox']} "
@@ -568,7 +568,7 @@ def _poll_code_via_imap(
     fallback_gap_ms = max(0, int(filter_after_timestamp_ms) - int(time_fallback_match["emailTimestamp"]))
     if fallback_gap_ms <= _TIME_FALLBACK_MAX_GAP_MS:
       _log_info(
-        f"poll time fallback email={_mask_email(email_addr)} mailbox={time_fallback_match['mailbox']} "
+        f"启用时间兜底 email={_mask_email(email_addr)} mailbox={time_fallback_match['mailbox']} "
         f"mailId={time_fallback_match['mailId']} code={time_fallback_match['code']} "
         f"gapMs={fallback_gap_ms} filterAfter={int(filter_after_timestamp_ms or 0)} "
         f"source={time_fallback_match.get('source') or '-'}"
@@ -582,12 +582,12 @@ def _poll_code_via_imap(
       }
 
     _log_info(
-      f"poll time fallback skipped email={_mask_email(email_addr)} mailbox={time_fallback_match['mailbox']} "
+      f"跳过时间兜底 email={_mask_email(email_addr)} mailbox={time_fallback_match['mailbox']} "
       f"mailId={time_fallback_match['mailId']} gapMs={fallback_gap_ms} "
       f"maxGapMs={_TIME_FALLBACK_MAX_GAP_MS}"
     )
 
-  raise RuntimeError(str(last_error) if last_error else "no code found")
+  raise RuntimeError(str(last_error) if last_error else "未找到验证码")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -597,7 +597,7 @@ class Handler(BaseHTTPRequestHandler):
   def do_GET(self):
     if self.path == "/health":
       return _json_response(self, 200, {"ok": True, "logPath": LOG_PATH})
-    return _json_response(self, 404, {"ok": False, "error": "not found"})
+    return _json_response(self, 404, {"ok": False, "error": "未找到接口"})
 
   def do_POST(self):
     if self.path == "/accounts/test":
@@ -605,17 +605,17 @@ class Handler(BaseHTTPRequestHandler):
       email_addr = str(payload.get("email") or "").strip().lower()
       auth_code = str(payload.get("authCode") or "").strip()
       if not email_addr or not auth_code:
-        return _json_response(self, 400, {"ok": False, "error": "email/authCode required"})
+        return _json_response(self, 400, {"ok": False, "error": "缺少 email 或 authCode"})
 
       try:
-        _log_info(f"test start email={_mask_email(email_addr)}")
+        _log_info(f"开始测试账号 email={_mask_email(email_addr)}")
         context = ssl.create_default_context()
         imap = IMAP4_SSL(IMAP_HOST, IMAP_PORT, ssl_context=context)
         try:
           _send_client_id(imap)
           imap.login(email_addr, auth_code)
           selected_mailbox = _select_mailbox(imap, "INBOX")
-          _log_info(f"test success email={_mask_email(email_addr)} mailbox={selected_mailbox}")
+          _log_info(f"账号测试成功 email={_mask_email(email_addr)} mailbox={selected_mailbox}")
           _json_response(self, 200, {"ok": True, "logPath": LOG_PATH, "mailbox": selected_mailbox})
         finally:
           try:
@@ -623,7 +623,7 @@ class Handler(BaseHTTPRequestHandler):
           except Exception:
             pass
       except Exception as e:
-        _log_error(f"test failed email={_mask_email(email_addr)} detail={e}")
+        _log_error(f"账号测试失败 email={_mask_email(email_addr)} detail={e}")
         return _json_response(self, 200, {"ok": False, "error": str(e), "logPath": LOG_PATH})
       return
 
@@ -632,7 +632,7 @@ class Handler(BaseHTTPRequestHandler):
       email_addr = str(payload.get("email") or "").strip().lower()
       auth_code = str(payload.get("authCode") or "").strip()
       if not email_addr or not auth_code:
-        return _json_response(self, 400, {"ok": False, "error": "email/authCode required"})
+        return _json_response(self, 400, {"ok": False, "error": "缺少 email 或 authCode"})
 
       filter_after = int(payload.get("filterAfterTimestamp") or 0)
       sender_filters = payload.get("senderFilters") if isinstance(payload.get("senderFilters"), list) else []
@@ -645,7 +645,7 @@ class Handler(BaseHTTPRequestHandler):
 
       try:
         _log_info(
-          f"poll endpoint start email={_mask_email(email_addr)} "
+          f"收到轮询请求 email={_mask_email(email_addr)} "
           f"senderFilters={sender_filters} subjectFilters={subject_filters}"
         )
         result = _poll_code_via_imap(
@@ -660,11 +660,11 @@ class Handler(BaseHTTPRequestHandler):
         )
         return _json_response(self, 200, {"ok": True, "logPath": LOG_PATH, **result})
       except Exception as e:
-        _log_error(f"poll endpoint failed email={_mask_email(email_addr)} detail={e}")
-        _log_error(traceback.format_exc().strip())
+        _log_error(f"轮询接口失败 email={_mask_email(email_addr)} detail={e}")
+        _log_error(f"异常堆栈：\n{traceback.format_exc().strip()}")
         return _json_response(self, 200, {"ok": False, "error": str(e), "logPath": LOG_PATH})
 
-    return _json_response(self, 404, {"ok": False, "error": "not found"})
+    return _json_response(self, 404, {"ok": False, "error": "未找到接口"})
 
   def log_message(self, _format, *_args):
     # Keep helper logs quiet; do not log credentials.
@@ -673,8 +673,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
   httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-  _log_info(f"mail163 helper listening on http://{HOST}:{PORT}")
-  _log_info(f"mail163 helper log path: {LOG_PATH}")
+  _log_info(f"mail163 helper 已监听：http://{HOST}:{PORT}")
+  _log_info(f"mail163 helper 日志路径：{LOG_PATH}")
   httpd.serve_forever()
 
 

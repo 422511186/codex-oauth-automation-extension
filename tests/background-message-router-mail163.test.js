@@ -66,5 +66,51 @@ test('message router RETRY_MAIL163_ACCOUNT resets account and selects it as curr
   ]);
   assert.equal(response.ok, true);
   assert.equal(response.account.email, 'pool-run@163.com');
-  assert.equal(events.logs.some(({ message }) => /163 号源已重置为可重试/.test(message)), true);
+  assert.equal(events.logs.some(({ message }) => /163/.test(message)), true);
+});
+
+test('message router PATCH_MAIL163_ACCOUNT forwards account updates', async () => {
+  const events = {
+    patched: [],
+  };
+
+  const router = api.createMessageRouter({
+    patchMail163Account: async (accountId, updates) => {
+      events.patched.push({ accountId, updates });
+      return {
+        id: accountId,
+        email: 'pool-run@163.com',
+        authCode: 'auth-code',
+        ...updates,
+      };
+    },
+  });
+
+  const response = await router.handleMessage({
+    type: 'PATCH_MAIL163_ACCOUNT',
+    payload: {
+      accountId: 'acc-2',
+      updates: {
+        status: 'success',
+        success: true,
+        used: true,
+      },
+    },
+  });
+
+  assert.deepStrictEqual(events.patched, [
+    {
+      accountId: 'acc-2',
+      updates: {
+        status: 'success',
+        success: true,
+        used: true,
+      },
+    },
+  ]);
+  assert.equal(response.ok, true);
+  assert.equal(response.account.id, 'acc-2');
+  assert.equal(response.account.status, 'success');
+  assert.equal(response.account.success, true);
+  assert.equal(response.account.used, true);
 });

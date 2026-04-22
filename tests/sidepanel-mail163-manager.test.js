@@ -45,6 +45,63 @@ function createAccountPoolUiStub() {
   };
 }
 
+function createClassListStub() {
+  const values = new Set();
+  return {
+    add(name) {
+      values.add(name);
+    },
+    remove(name) {
+      values.delete(name);
+    },
+    toggle(name, force) {
+      if (force === undefined) {
+        if (values.has(name)) {
+          values.delete(name);
+          return false;
+        }
+        values.add(name);
+        return true;
+      }
+      if (force) {
+        values.add(name);
+        return true;
+      }
+      values.delete(name);
+      return false;
+    },
+    contains(name) {
+      return values.has(name);
+    },
+  };
+}
+
+function createButtonStub(textContent = '') {
+  return {
+    textContent,
+    disabled: false,
+    dataset: {},
+    attributes: {},
+    classList: createClassListStub(),
+    listeners: {},
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+    click() {
+      this.listeners.click?.();
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+  };
+}
+
+function createFilterButton(filterValue, label) {
+  const button = createButtonStub(label);
+  button.dataset.mail163Filter = filterValue;
+  return button;
+}
+
 function loadMail163ManagerApi() {
   const source = fs.readFileSync('sidepanel/mail-163-manager.js', 'utf8');
   const windowObject = {
@@ -87,12 +144,17 @@ test('mail163 manager exposes a factory and renders empty state', () => {
       syncLatestState() {},
     },
     dom: {
-      btnDeleteAllMail163Accounts: { textContent: '', disabled: false },
-      btnToggleMail163List: { textContent: '', disabled: false, setAttribute() {} },
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
       mail163AccountsList,
-      mail163ListShell: { classList: { toggle() {} } },
+      mail163ListShell: { classList: createClassListStub() },
       selectMailProvider: { value: '163' },
       inputEmail: { value: '' },
+      mail163FilterButtons: [
+        createFilterButton('all', '全部'),
+        createFilterButton('idle', '未执行'),
+      ],
     },
     helpers: {
       getMail163Accounts: () => [],
@@ -100,6 +162,7 @@ test('mail163 manager exposes a factory and renders empty state', () => {
       showToast() {},
       openConfirmModal: async () => true,
       copyTextToClipboard: async () => {},
+      downloadTextFile() {},
     },
     runtime: {
       sendMessage: async () => ({}),
@@ -152,12 +215,13 @@ test('mail163 manager retry action syncs current selection and input email local
       },
     },
     dom: {
-      btnAddMail163Account: { disabled: false, addEventListener() {} },
-      btnDeleteAllMail163Accounts: { textContent: '', disabled: false, addEventListener() {} },
-      btnImportMail163Accounts: { disabled: false, addEventListener() {} },
-      btnLoadMail163File: { addEventListener() {} },
-      btnToggleMail163Form: { textContent: '', setAttribute() {}, addEventListener() {} },
-      btnToggleMail163List: { textContent: '', disabled: false, setAttribute() {}, addEventListener() {} },
+      btnAddMail163Account: createButtonStub(),
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnImportMail163Accounts: createButtonStub(),
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
       inputEmail,
       inputMail163AuthCode: { value: '' },
       inputMail163Email: { value: '', focus() {} },
@@ -169,8 +233,12 @@ test('mail163 manager retry action syncs current selection and input email local
           if (type === 'click') handlers.listClick = handler;
         },
       },
+      mail163FilterButtons: [
+        createFilterButton('all', '全部'),
+        createFilterButton('failed', '失败'),
+      ],
       mail163FormShell: { hidden: true },
-      mail163ListShell: { classList: { toggle() {} } },
+      mail163ListShell: { classList: createClassListStub() },
       selectMailProvider: { value: '163' },
     },
     helpers: {
@@ -179,6 +247,7 @@ test('mail163 manager retry action syncs current selection and input email local
       showToast() {},
       openConfirmModal: async () => true,
       copyTextToClipboard: async () => {},
+      downloadTextFile() {},
     },
     runtime: {
       sendMessage: async (message) => {
@@ -230,4 +299,357 @@ test('mail163 manager retry action syncs current selection and input email local
   assert.equal(stateStore.mail163Accounts[0].status, 'idle');
   assert.equal(stateStore.mail163Accounts[0].lastError, '');
   assert.equal(inputEmail.value, 'retry@163.com');
+});
+
+test('mail163 manager filters current list and exports filtered txt data', async () => {
+  const api = loadMail163ManagerApi();
+  const downloads = [];
+  const toasts = [];
+  const btnExportMail163Accounts = createButtonStub();
+  const filterAllButton = createFilterButton('all', '全部');
+  const filterFailedButton = createFilterButton('failed', '失败');
+  const filterSuccessButton = createFilterButton('success', '成功');
+  const mail163AccountsList = {
+    innerHTML: '',
+    addEventListener() {},
+  };
+  const stateStore = {
+    currentMail163AccountId: 'failed-1',
+    email: 'failed-1@163.com',
+    mail163Accounts: [
+      {
+        id: 'idle-1',
+        email: 'idle-1@163.com',
+        authCode: 'idle-auth',
+        status: 'idle',
+        success: false,
+        retryCount: 0,
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'failed-1',
+        email: 'failed-1@163.com',
+        authCode: 'failed-auth',
+        status: 'failed',
+        success: false,
+        retryCount: 1,
+        lastResultAt: 100,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'failed-2',
+        email: 'failed-2@163.com',
+        authCode: '',
+        status: 'failed',
+        success: false,
+        retryCount: 2,
+        lastResultAt: 200,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'success-1',
+        email: 'success-1@163.com',
+        authCode: 'success-auth',
+        status: 'success',
+        success: true,
+        retryCount: 0,
+        lastResultAt: 300,
+        lastUsedAt: 300,
+      },
+    ],
+  };
+
+  const manager = api.createMail163Manager({
+    state: {
+      getLatestState: () => stateStore,
+      syncLatestState: (updates) => {
+        Object.assign(stateStore, updates);
+      },
+    },
+    dom: {
+      btnAddMail163Account: createButtonStub(),
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts,
+      btnImportMail163Accounts: createButtonStub(),
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
+      inputEmail: { value: 'failed-1@163.com' },
+      inputMail163AuthCode: { value: '' },
+      inputMail163Email: { value: '', focus() {} },
+      inputMail163Import: { value: '' },
+      inputMail163ImportFile: { addEventListener() {} },
+      mail163AccountsList,
+      mail163FilterButtons: [
+        filterAllButton,
+        filterFailedButton,
+        filterSuccessButton,
+      ],
+      mail163FormShell: { hidden: true },
+      mail163ListShell: { classList: createClassListStub() },
+      selectMailProvider: { value: '163' },
+    },
+    helpers: {
+      getMail163Accounts: (currentState = stateStore) => currentState.mail163Accounts,
+      escapeHtml: (value) => String(value || ''),
+      showToast(message, level) {
+        toasts.push({ message, level });
+      },
+      openConfirmModal: async () => true,
+      copyTextToClipboard: async () => {},
+      downloadTextFile(content, fileName, mimeType) {
+        downloads.push({ content, fileName, mimeType });
+      },
+    },
+    runtime: {
+      sendMessage: async () => ({ ok: true }),
+    },
+    constants: {
+      copyIcon: '',
+      displayTimeZone: 'Asia/Shanghai',
+      expandedStorageKey: 'multipage-mail163-list-expanded',
+    },
+    mail163Utils: {},
+  });
+
+  manager.bindMail163Events();
+  filterFailedButton.click();
+
+  assert.match(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+  assert.match(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /idle-1@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /success-1@163\.com/);
+  assert.match(filterFailedButton.textContent, /失败（2）/);
+  assert.equal(filterFailedButton.attributes['aria-pressed'], 'true');
+  assert.match(btnExportMail163Accounts.textContent, /导出 TXT（2）/);
+
+  btnExportMail163Accounts.click();
+
+  assert.equal(downloads.length, 1);
+  assert.equal(downloads[0].content, 'failed-1@163.com failed-auth');
+  assert.match(downloads[0].fileName, /^mail163-accounts-failed-\d{8}-\d{6}\.txt$/);
+  assert.equal(downloads[0].mimeType, 'text/plain;charset=utf-8');
+  assert.equal(toasts.at(-1)?.level, 'success');
+  assert.match(toasts.at(-1)?.message || '', /已导出 1 条 163 号源，跳过 1 条/);
+});
+
+test('mail163 manager can quickly toggle idle, failed, and success statuses', async () => {
+  const api = loadMail163ManagerApi();
+  const handlers = {};
+  const messages = [];
+  const toasts = [];
+  const stateStore = {
+    currentMail163AccountId: 'success-1',
+    email: 'success-1@163.com',
+    mail163Accounts: [
+      {
+        id: 'idle-1',
+        email: 'idle-1@163.com',
+        authCode: 'idle-auth',
+        status: 'idle',
+        success: false,
+        used: false,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'failed-1',
+        email: 'failed-1@163.com',
+        authCode: 'failed-auth',
+        status: 'failed',
+        success: false,
+        used: false,
+        retryCount: 1,
+        lastError: 'old error',
+        lastResultAt: 100,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'success-1',
+        email: 'success-1@163.com',
+        authCode: 'success-auth',
+        status: 'success',
+        success: true,
+        used: true,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 200,
+        lastUsedAt: 200,
+      },
+    ],
+  };
+  const inputEmail = { value: 'success-1@163.com' };
+  const mail163AccountsList = {
+    innerHTML: '',
+    addEventListener(type, handler) {
+      if (type === 'click') handlers.listClick = handler;
+    },
+  };
+
+  const manager = api.createMail163Manager({
+    state: {
+      getLatestState: () => stateStore,
+      syncLatestState: (updates) => {
+        Object.assign(stateStore, updates);
+      },
+    },
+    dom: {
+      btnAddMail163Account: createButtonStub(),
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnImportMail163Accounts: createButtonStub(),
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
+      inputEmail,
+      inputMail163AuthCode: { value: '' },
+      inputMail163Email: { value: '', focus() {} },
+      inputMail163Import: { value: '' },
+      inputMail163ImportFile: { addEventListener() {} },
+      mail163AccountsList,
+      mail163FilterButtons: [
+        createFilterButton('all', '全部'),
+        createFilterButton('failed', '失败'),
+        createFilterButton('success', '成功'),
+      ],
+      mail163FormShell: { hidden: true },
+      mail163ListShell: { classList: createClassListStub() },
+      selectMailProvider: { value: '163' },
+    },
+    helpers: {
+      getMail163Accounts: (currentState = stateStore) => currentState.mail163Accounts,
+      escapeHtml: (value) => String(value || ''),
+      showToast(message, level) {
+        toasts.push({ message, level });
+      },
+      openConfirmModal: async () => true,
+      copyTextToClipboard: async () => {},
+      downloadTextFile() {},
+    },
+    runtime: {
+      sendMessage: async (message) => {
+        messages.push(message);
+        if (message.type !== 'PATCH_MAIL163_ACCOUNT') {
+          throw new Error(`unexpected message type: ${message.type}`);
+        }
+        if (message.payload.accountId === 'idle-1' || message.payload.accountId === 'failed-1') {
+          const sourceAccount = stateStore.mail163Accounts.find((account) => account.id === message.payload.accountId);
+          return {
+            ok: true,
+            account: {
+              ...sourceAccount,
+              status: 'success',
+              success: true,
+              used: true,
+              lastError: '',
+              lastResultAt: message.payload.updates.lastResultAt,
+              lastUsedAt: message.payload.updates.lastUsedAt,
+            },
+          };
+        }
+        return {
+          ok: true,
+          account: {
+            ...stateStore.mail163Accounts[2],
+            status: 'failed',
+            success: false,
+            used: false,
+            lastError: '手动标记为失败',
+            lastResultAt: message.payload.updates.lastResultAt,
+            lastUsedAt: stateStore.mail163Accounts[2].lastUsedAt,
+          },
+        };
+      },
+    },
+    constants: {
+      copyIcon: '',
+      displayTimeZone: 'Asia/Shanghai',
+      expandedStorageKey: 'multipage-mail163-list-expanded',
+    },
+    mail163Utils: {},
+  });
+
+  manager.renderMail163Accounts();
+  assert.match(mail163AccountsList.innerHTML, /idle-1@163\.com[\s\S]*data-account-action="mark-success"/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="mark-success"/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="mark-failed"/);
+
+  manager.bindMail163Events();
+
+  await handlers.listClick({
+    target: {
+      closest() {
+        return {
+          dataset: {
+            accountAction: 'mark-success',
+            accountId: 'idle-1',
+          },
+          disabled: false,
+        };
+      },
+    },
+  });
+
+  assert.equal(messages[0].type, 'PATCH_MAIL163_ACCOUNT');
+  assert.equal(messages[0].payload.accountId, 'idle-1');
+  assert.equal(messages[0].payload.updates.status, 'success');
+  assert.equal(messages[0].payload.updates.success, true);
+  assert.equal(messages[0].payload.updates.used, true);
+  assert.equal(stateStore.mail163Accounts[0].status, 'success');
+  assert.equal(stateStore.mail163Accounts[0].success, true);
+  assert.equal(stateStore.mail163Accounts[0].used, true);
+  assert.equal(stateStore.mail163Accounts[0].lastError, '');
+
+  await handlers.listClick({
+    target: {
+      closest() {
+        return {
+          dataset: {
+            accountAction: 'mark-success',
+            accountId: 'failed-1',
+          },
+          disabled: false,
+        };
+      },
+    },
+  });
+
+  assert.equal(messages[1].type, 'PATCH_MAIL163_ACCOUNT');
+  assert.equal(messages[1].payload.accountId, 'failed-1');
+  assert.equal(messages[1].payload.updates.status, 'success');
+  assert.equal(messages[1].payload.updates.success, true);
+  assert.equal(messages[1].payload.updates.used, true);
+  assert.equal(stateStore.mail163Accounts[1].status, 'success');
+  assert.equal(stateStore.mail163Accounts[1].success, true);
+  assert.equal(stateStore.mail163Accounts[1].used, true);
+  assert.equal(stateStore.mail163Accounts[1].lastError, '');
+
+  await handlers.listClick({
+    target: {
+      closest() {
+        return {
+          dataset: {
+            accountAction: 'mark-failed',
+            accountId: 'success-1',
+          },
+          disabled: false,
+        };
+      },
+    },
+  });
+
+  assert.equal(messages[2].type, 'PATCH_MAIL163_ACCOUNT');
+  assert.equal(messages[2].payload.accountId, 'success-1');
+  assert.equal(messages[2].payload.updates.status, 'failed');
+  assert.equal(messages[2].payload.updates.success, false);
+  assert.equal(messages[2].payload.updates.used, false);
+  assert.equal(stateStore.mail163Accounts[2].status, 'failed');
+  assert.equal(stateStore.mail163Accounts[2].success, false);
+  assert.equal(stateStore.mail163Accounts[2].used, false);
+  assert.equal(stateStore.mail163Accounts[2].lastError, '手动标记为失败');
+  assert.equal(inputEmail.value, 'success-1@163.com');
+  assert.equal(toasts.at(-1)?.level, 'success');
 });

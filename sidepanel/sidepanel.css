@@ -1139,6 +1139,18 @@ header {
   gap: 8px;
 }
 
+.mail163-filter-row {
+  align-items: flex-start;
+}
+
+.mail163-filter-group {
+  flex-wrap: wrap;
+}
+
+.mail163-filter-group .choice-btn {
+  flex: 0 0 auto;
+}
+
 .hotmail-list-shell {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);

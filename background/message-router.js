@@ -662,6 +662,17 @@
           return { ok: true, ...result };
         }
 
+        case 'PATCH_MAIL163_ACCOUNT': {
+          if (typeof patchMail163Account !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          const account = await patchMail163Account(
+            String(message.payload?.accountId || ''),
+            message.payload?.updates || {}
+          );
+          return { ok: true, account };
+        }
+
         case 'RETRY_MAIL163_ACCOUNT': {
           if (typeof patchMail163Account !== 'function' || typeof setCurrentMail163Account !== 'function') {
             throw new Error('163 号源管理能力尚未接入。');
