@@ -4,6 +4,7 @@ import re
 import ssl
 import time
 import traceback
+import html
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import imaplib
@@ -179,7 +180,7 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict):
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
     handler.end_headers()
     handler.wfile.write(body)
-  except (BrokenPipeError, ConnectionResetError):
+  except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
     _log_error("client disconnected before helper response could be written")
 
 
@@ -202,6 +203,25 @@ def _decode_mime_header(value: str) -> str:
     return value
 
 
+def _normalize_text(value: str) -> str:
+  text = html.unescape(str(value or ""))
+  text = text.replace("\r", " ").replace("\n", " ").replace("\xa0", " ").replace("\u200b", " ")
+  return re.sub(r"\s+", " ", text).strip()
+
+
+def _html_to_text(value: str) -> str:
+  text = html.unescape(str(value or ""))
+  if not text:
+    return ""
+  text = re.sub(r"(?is)<!--.*?-->", " ", text)
+  text = re.sub(r"(?is)<(script|style)\b.*?>.*?</\1>", " ", text)
+  text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+  text = re.sub(r"(?i)</p\s*>", "\n", text)
+  text = re.sub(r"(?i)</div\s*>", "\n", text)
+  text = re.sub(r"(?s)<[^>]+>", " ", text)
+  return _normalize_text(text)
+
+
 def _extract_text(msg) -> str:
   # Prefer text/plain; fallback to any text/*.
   if msg.is_multipart():
@@ -218,6 +238,10 @@ def _extract_text(msg) -> str:
         payload = part.get_payload(decode=True) or b""
         charset = part.get_content_charset() or "utf-8"
         text = payload.decode(charset, errors="replace")
+        if ctype == "text/html":
+          text = _html_to_text(text)
+        else:
+          text = _normalize_text(text)
         candidates.append((ctype, text))
       except Exception:
         continue
@@ -233,13 +257,32 @@ def _extract_text(msg) -> str:
   try:
     payload = msg.get_payload(decode=True) or b""
     charset = msg.get_content_charset() or "utf-8"
-    return payload.decode(charset, errors="replace")
+    text = payload.decode(charset, errors="replace")
+    if (msg.get_content_type() or "").lower() == "text/html":
+      return _html_to_text(text)
+    return _normalize_text(text)
   except Exception:
     return ""
 
 
-_CODE_RE = re.compile(r"\b(\d{6})\b")
-_TIME_FALLBACK_MAX_AGE_MS = 20 * 60 * 1000
+_CN_CODE_HINT = (
+  r"(?:输入此临时验证码以继续|请输入(?:此)?临时验证码(?:以继续)?|"
+  r"临时验证码|临时登录验证码|临时登录代码|登录验证码|登录代码|验证码|代码为)"
+)
+_EN_CODE_HINT = (
+  r"(?:input this temporary code to continue|enter this temporary code to continue|enter this code|"
+  r"log[-\s]*in code|"
+  r"your temporary code|temporary verification code|temporary login code|"
+  r"verification code|login code|temporary code|one[-\s]*time code|"
+  r"security code|auth(?:entication)? code|code(?:\s+is)?)"
+)
+_VERIFICATION_CODE_PATTERNS = [
+  ("cn_forward", re.compile(rf"{_CN_CODE_HINT}[^0-9]{{0,24}}(\d{{6}})", re.IGNORECASE)),
+  ("en_forward", re.compile(rf"{_EN_CODE_HINT}[^0-9]{{0,24}}(\d{{6}})", re.IGNORECASE)),
+  ("cn_reverse", re.compile(rf"\b(\d{{6}})\b[^0-9]{{0,24}}{_CN_CODE_HINT}", re.IGNORECASE)),
+  ("en_reverse", re.compile(rf"\b(\d{{6}})\b[^0-9]{{0,24}}{_EN_CODE_HINT}", re.IGNORECASE)),
+]
+_TIME_FALLBACK_MAX_GAP_MS = 2 * 60 * 1000
 
 
 def _matches_any(haystack: str, filters) -> bool:
@@ -251,6 +294,47 @@ def _matches_any(haystack: str, filters) -> bool:
     if token and token in lower:
       return True
   return False
+
+
+def _extract_search_ids(data) -> list[bytes]:
+  if not data:
+    return []
+
+  raw_ids = data[0]
+  if raw_ids is None:
+    return []
+
+  if isinstance(raw_ids, bytes):
+    return raw_ids.split()
+
+  normalized = str(raw_ids or "").strip()
+  if not normalized:
+    return []
+
+  return normalized.encode("utf-8", errors="ignore").split()
+
+
+def _extract_verification_code(text: str):
+  normalized = _normalize_text(text)
+  if not normalized:
+    return None
+
+  for source, pattern in _VERIFICATION_CODE_PATTERNS:
+    match = pattern.search(normalized)
+    if not match:
+      continue
+    code = str(match.group(1) or "").strip()
+    if not code:
+      continue
+    snippet_start = max(0, match.start() - 36)
+    snippet_end = min(len(normalized), match.end() + 36)
+    return {
+      "code": code,
+      "source": source,
+      "snippet": normalized[snippet_start:snippet_end],
+    }
+
+  return None
 
 
 def _poll_code_via_imap(
@@ -295,13 +379,13 @@ def _poll_code_via_imap(
         for mailbox_target in mailbox_targets:
           selected_mailbox = _select_mailbox(imap, mailbox_target["name"])
           typ, data = imap.search(None, "ALL")
-          if typ != "OK" or not data or not data[0]:
+          if typ != "OK":
             raise RuntimeError(
               f"IMAP search failed: status={typ} state={getattr(imap, 'state', '')} "
               f"response={_decode_imap_atoms(data)} mailbox={selected_mailbox}"
             )
 
-          ids = data[0].split()
+          ids = _extract_search_ids(data)
           ids = ids[-max_messages:][::-1]
           _log_info(
             f"poll attempt={attempt + 1}/{max_attempts} email={_mask_email(email_addr)} "
@@ -337,14 +421,16 @@ def _poll_code_via_imap(
             subject_header = _decode_mime_header(msg.get("Subject", ""))
             body_text = _extract_text(msg)
             combined = f"{subject_header}\n{body_text}"
-
+            extraction = _extract_verification_code(combined)
             code = ""
-            for m in _CODE_RE.finditer(combined):
-              next_code = m.group(1)
-              if next_code in exclude_set:
-                continue
-              code = next_code
-              break
+            extraction_source = ""
+            extraction_snippet = ""
+            if extraction:
+              next_code = str(extraction.get("code") or "").strip()
+              if next_code and next_code not in exclude_set:
+                code = next_code
+                extraction_source = str(extraction.get("source") or "").strip()
+                extraction_snippet = str(extraction.get("snippet") or "").strip()
 
             passed_filter_after = not filter_after_timestamp_ms or ts_ms > filter_after_timestamp_ms
             matches_filters, sender_match, subject_match = _message_matches_filters(
@@ -362,6 +448,8 @@ def _poll_code_via_imap(
                 "from": from_header[:120],
                 "subject": subject_header[:120],
                 "code": code,
+                "codeSource": extraction_source,
+                "codeSnippet": extraction_snippet[:120],
                 "senderMatch": sender_match,
                 "subjectMatch": subject_match,
                 "passedFilterAfter": passed_filter_after,
@@ -378,9 +466,10 @@ def _poll_code_via_imap(
                   "mailId": str(
                     msg_id.decode("ascii", errors="ignore")
                     if isinstance(msg_id, (bytes, bytearray))
-                    else msg_id
+                  else msg_id
                   ),
                   "mailbox": mailbox_target["label"],
+                  "source": extraction_source,
                 }
 
             if not passed_filter_after:
@@ -393,7 +482,7 @@ def _poll_code_via_imap(
             _log_info(
               f"poll success email={_mask_email(email_addr)} mailbox={mailbox_target['label']} "
               f"mailId={msg_id.decode('ascii', errors='ignore') if isinstance(msg_id, (bytes, bytearray)) else msg_id} "
-              f"code={code}"
+              f"code={code} source={extraction_source or '-'}"
             )
             return {
               "code": code,
@@ -436,6 +525,8 @@ def _poll_code_via_imap(
                 f"subjectMatch={item['subjectMatch']} "
                 f"passedFilterAfter={item['passedFilterAfter']} "
                 f"code={item['code'] or '-'} "
+                f"codeSource={item.get('codeSource') or '-'} "
+                f"codeSnippet={item.get('codeSnippet') or '-'} "
                 f"from={item['from']} "
                 f"subject={item['subject']}"
               )
@@ -464,6 +555,8 @@ def _poll_code_via_imap(
           f"subjectMatch={item['subjectMatch']} "
           f"passedFilterAfter={item['passedFilterAfter']} "
           f"code={item['code'] or '-'} "
+          f"codeSource={item.get('codeSource') or '-'} "
+          f"codeSnippet={item.get('codeSnippet') or '-'} "
           f"from={item['from']} "
           f"subject={item['subject']}"
         )
@@ -472,12 +565,13 @@ def _poll_code_via_imap(
     )
 
   if time_fallback_match and filter_after_timestamp_ms:
-    fallback_age_ms = max(0, int(time.time() * 1000) - int(time_fallback_match["emailTimestamp"]))
-    if fallback_age_ms <= _TIME_FALLBACK_MAX_AGE_MS:
+    fallback_gap_ms = max(0, int(filter_after_timestamp_ms) - int(time_fallback_match["emailTimestamp"]))
+    if fallback_gap_ms <= _TIME_FALLBACK_MAX_GAP_MS:
       _log_info(
         f"poll time fallback email={_mask_email(email_addr)} mailbox={time_fallback_match['mailbox']} "
         f"mailId={time_fallback_match['mailId']} code={time_fallback_match['code']} "
-        f"ageMs={fallback_age_ms} filterAfter={int(filter_after_timestamp_ms or 0)}"
+        f"gapMs={fallback_gap_ms} filterAfter={int(filter_after_timestamp_ms or 0)} "
+        f"source={time_fallback_match.get('source') or '-'}"
       )
       return {
         "code": time_fallback_match["code"],
@@ -489,8 +583,8 @@ def _poll_code_via_imap(
 
     _log_info(
       f"poll time fallback skipped email={_mask_email(email_addr)} mailbox={time_fallback_match['mailbox']} "
-      f"mailId={time_fallback_match['mailId']} ageMs={fallback_age_ms} "
-      f"maxAgeMs={_TIME_FALLBACK_MAX_AGE_MS}"
+      f"mailId={time_fallback_match['mailId']} gapMs={fallback_gap_ms} "
+      f"maxGapMs={_TIME_FALLBACK_MAX_GAP_MS}"
     )
 
   raise RuntimeError(str(last_error) if last_error else "no code found")

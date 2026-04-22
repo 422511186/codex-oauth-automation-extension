@@ -1947,31 +1947,55 @@ async function pollMail163VerificationCode(step, state, pollPayload = {}) {
     lockedAccountId: state.autoRunLockedMail163AccountId || null,
     markRunning: false,
   });
+  const maxAttempts = Math.max(1, Number(pollPayload.maxAttempts) || 5);
+  const intervalMs = Math.max(1000, Number(pollPayload.intervalMs) || 3000);
+  const helperTimeoutMs = Math.max(25000, intervalMs + 20000);
+  let lastError = null;
 
-  const response = await requestMail163Helper('/accounts/poll-code', {
-    email: account.email,
-    authCode: account.authCode,
-    filterAfterTimestamp: Number(pollPayload.filterAfterTimestamp || 0) || 0,
-    senderFilters: Array.isArray(pollPayload.senderFilters) ? pollPayload.senderFilters : [],
-    subjectFilters: Array.isArray(pollPayload.subjectFilters) ? pollPayload.subjectFilters : [],
-    excludeCodes: Array.isArray(pollPayload.excludeCodes) ? pollPayload.excludeCodes : [],
-    maxAttempts: Math.max(1, Number(pollPayload.maxAttempts) || 5),
-    intervalMs: Math.max(1000, Number(pollPayload.intervalMs) || 3000),
-  }, {
-    timeoutMs: Math.max(15000, (Math.max(1, Number(pollPayload.maxAttempts) || 5) * Math.max(1000, Number(pollPayload.intervalMs) || 3000)) + 15000),
-  });
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    throwIfStopped();
+    try {
+      await addLog(`步骤 ${step}：正在通过 163 helper 轮询验证码（${attempt}/${maxAttempts}）...`, 'info');
+      const response = await requestMail163Helper('/accounts/poll-code', {
+        email: account.email,
+        authCode: account.authCode,
+        filterAfterTimestamp: Number(pollPayload.filterAfterTimestamp || 0) || 0,
+        senderFilters: Array.isArray(pollPayload.senderFilters) ? pollPayload.senderFilters : [],
+        subjectFilters: Array.isArray(pollPayload.subjectFilters) ? pollPayload.subjectFilters : [],
+        excludeCodes: Array.isArray(pollPayload.excludeCodes) ? pollPayload.excludeCodes : [],
+        maxAttempts: 1,
+        intervalMs,
+      }, {
+        timeoutMs: helperTimeoutMs,
+      });
 
-  if (response.usedTimeFallback) {
-    await addLog(`步骤 ${step}：163 邮箱 helper 使用时间回退命中了较早收到的验证码，请留意 helper 日志确认邮件时间。`, 'warn');
+      if (response.usedTimeFallback) {
+        await addLog(`步骤 ${step}：163 邮箱 helper 使用时间回退命中了较早收到的验证码，请留意 helper 日志确认邮件时间。`, 'warn');
+      }
+
+      return {
+        code: String(response.code || '').trim(),
+        emailTimestamp: Number(response.emailTimestamp || Date.now()) || Date.now(),
+        mailId: String(response.mailId || ''),
+        usedTimeFallback: Boolean(response.usedTimeFallback),
+        selectionSource: String(response.selectionSource || ''),
+      };
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err || 'unknown error'));
+      const message = String(lastError.message || '');
+      if (/no code found/i.test(message)) {
+        await addLog(`步骤 ${step}：163 helper 暂未返回匹配验证码（${attempt}/${maxAttempts}）。`, attempt === maxAttempts ? 'warn' : 'info');
+      } else {
+        await addLog(`步骤 ${step}：163 helper 轮询失败：${message}`, 'warn');
+      }
+    }
+
+    if (attempt < maxAttempts) {
+      await sleepWithStop(intervalMs);
+    }
   }
 
-  return {
-    code: String(response.code || '').trim(),
-    emailTimestamp: Number(response.emailTimestamp || Date.now()) || Date.now(),
-    mailId: String(response.mailId || ''),
-    usedTimeFallback: Boolean(response.usedTimeFallback),
-    selectionSource: String(response.selectionSource || ''),
-  };
+  throw lastError || new Error(`步骤 ${step}：163 helper 未返回新的匹配验证码。`);
 }
 
 async function requestHotmailRemoteMailbox(account, mailbox = 'INBOX') {
@@ -6562,6 +6586,7 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   pollMail163VerificationCode,
   pollLuckmailVerificationCode,
   sendToContentScript,
+  sendToContentScriptResilient,
   sendToMailContentScriptResilient,
   setState,
   setStepStatus,

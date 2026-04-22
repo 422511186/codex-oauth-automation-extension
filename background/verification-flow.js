@@ -24,6 +24,7 @@
       pollHotmailVerificationCode,
       pollMail163VerificationCode,
       pollLuckmailVerificationCode,
+      sendToContentScriptResilient,
       sendToContentScript,
       sendToMailContentScriptResilient,
       setState,
@@ -603,25 +604,105 @@
       }
 
       await chrome.tabs.update(signupTabId, { active: true });
-      const result = await sendToContentScript('signup-page', {
-        type: 'FILL_CODE',
-        step,
-        source: 'background',
-        payload: { code },
-      }, {
-        responseTimeoutMs: await getResponseTimeoutMsForStep(
+      try {
+        const result = await sendToContentScript('signup-page', {
+          type: 'FILL_CODE',
           step,
-          options,
-          step === 7 ? 45000 : 30000,
-          `填写${getVerificationCodeLabel(step)}验证码`
-        ),
-      });
+          source: 'background',
+          payload: { code },
+        }, {
+          responseTimeoutMs: await getResponseTimeoutMsForStep(
+            step,
+            options,
+            step === 8 ? 45000 : 30000,
+            `填写${getVerificationCodeLabel(step)}验证码`
+          ),
+        });
 
-      if (result && result.error) {
-        throw new Error(result.error);
+        if (result && result.error) {
+          throw new Error(result.error);
+        }
+
+        return result || {};
+      } catch (err) {
+        const message = String(err?.message || err || '');
+        const isRetryableTransportError = /back\/forward cache|message channel is closed|Receiving end does not exist|port closed before a response was received|A listener indicated an asynchronous response|did not respond in \d+s/i.test(message);
+        if (!isRetryableTransportError || typeof sendToContentScriptResilient !== 'function') {
+          throw err;
+        }
+
+        await addLog(`步骤 ${step}：验证码提交后认证页连接被页面切换中断，正在重新连接确认结果...`, 'warn');
+
+        if (step === 4) {
+          const recoveryResult = await sendToContentScriptResilient('signup-page', {
+            type: 'PREPARE_SIGNUP_VERIFICATION',
+            step,
+            source: 'background',
+            payload: {
+              password: options.password || '',
+              prepareSource: 'step4_submit_transport_recovery',
+              prepareLogLabel: '步骤 4 提交后收尾',
+            },
+          }, {
+            timeoutMs: 35000,
+            responseTimeoutMs: 35000,
+            retryDelayMs: 700,
+            logMessage: '步骤 4：验证码提交后页面正在切换，等待重新就绪以确认结果...',
+          });
+
+          if (recoveryResult?.error) {
+            throw new Error(recoveryResult.error);
+          }
+          if (recoveryResult?.alreadyVerified) {
+            return { success: true, assumed: true, recoveredTransport: true };
+          }
+          if (recoveryResult?.ready) {
+            return {
+              invalidCode: true,
+              errorText: '提交后页面仍停留在验证码页面，准备重新发送验证码。',
+              recoveredTransport: true,
+            };
+          }
+        }
+
+        if (step === 8) {
+          const step8State = await sendToContentScriptResilient('signup-page', {
+            type: 'STEP8_GET_STATE',
+            step,
+            source: 'background',
+            payload: {},
+          }, {
+            timeoutMs: 20000,
+            responseTimeoutMs: 12000,
+            retryDelayMs: 700,
+            logMessage: '步骤 8：验证码提交后页面正在切换，等待重新就绪以确认结果...',
+          });
+
+          if (step8State?.error) {
+            throw new Error(step8State.error);
+          }
+          if (step8State?.addPhonePage) {
+            return {
+              success: true,
+              addPhonePage: true,
+              url: step8State.url || '',
+              recoveredTransport: true,
+            };
+          }
+          if (step8State?.consentReady || step8State?.oauthConsentPage) {
+            return { success: true, assumed: true, recoveredTransport: true };
+          }
+          if (step8State?.verificationPage) {
+            return {
+              invalidCode: true,
+              errorText: '提交后页面仍停留在验证码页面，准备重新发送验证码。',
+              recoveredTransport: true,
+            };
+          }
+        }
+
+        throw err;
       }
-
-      return result || {};
     }
 
     async function resolveVerificationStep(step, state, mail, options = {}) {
@@ -723,7 +804,12 @@
             });
           }
           throwIfStopped();
-          const submitResult = await submitVerificationCode(step, result.code, options);
+          const submitResult = await submitVerificationCode(step, result.code, {
+            ...options,
+            password: step === 4
+              ? String(state?.password || state?.customPassword || '')
+              : '',
+          });
 
           if (submitResult.invalidCode) {
             rejectedCodes.add(result.code);

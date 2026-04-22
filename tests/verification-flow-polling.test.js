@@ -152,6 +152,168 @@ test('verification flow runs beforeSubmit hook before filling the code', async (
   ]);
 });
 
+test('verification flow recovers step 4 submit after retryable transport error when signup page already advanced', async () => {
+  const events = [];
+  const recoveryCalls = [];
+
+  const helpers = api.createVerificationFlowHelpers({
+    addLog: async (message, level = 'info') => {
+      events.push(['log', level, message]);
+    },
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async (_step, payload) => {
+      events.push(['complete', payload.code]);
+    },
+    confirmCustomVerificationStepBypassRequest: async () => ({ confirmed: true }),
+    getHotmailVerificationPollConfig: () => ({}),
+    getHotmailVerificationRequestTimestamp: () => 0,
+    getState: async () => ({}),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isStopError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    MAIL_2925_VERIFICATION_INTERVAL_MS: 15000,
+    MAIL_2925_VERIFICATION_MAX_ATTEMPTS: 15,
+    pollCloudflareTempEmailVerificationCode: async () => ({}),
+    pollHotmailVerificationCode: async () => ({}),
+    pollLuckmailVerificationCode: async () => ({}),
+    sendToContentScript: async (_source, message) => {
+      if (message.type === 'FILL_CODE') {
+        events.push(['submit', message.payload.code]);
+        throw new Error('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.');
+      }
+      return {};
+    },
+    sendToContentScriptResilient: async (_source, message) => {
+      recoveryCalls.push(message.type);
+      if (message.type === 'PREPARE_SIGNUP_VERIFICATION') {
+        return { alreadyVerified: true };
+      }
+      return {};
+    },
+    sendToMailContentScriptResilient: async () => ({
+      code: '654321',
+      emailTimestamp: 123,
+    }),
+    setState: async (payload) => {
+      events.push(['state', payload.lastSignupCode || payload.lastLoginCode]);
+    },
+    setStepStatus: async () => {},
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+    VERIFICATION_POLL_MAX_ROUNDS: 5,
+  });
+
+  await helpers.resolveVerificationStep(
+    4,
+    { email: 'user@example.com', password: 'pw-123456', lastSignupCode: null },
+    { provider: 'qq', label: 'QQ 邮箱' },
+    {}
+  );
+
+  assert.deepStrictEqual(recoveryCalls, ['PREPARE_SIGNUP_VERIFICATION']);
+  assert.deepStrictEqual(
+    events.filter(([type]) => type !== 'log'),
+    [
+      ['submit', '654321'],
+      ['state', '654321'],
+      ['complete', '654321'],
+    ]
+  );
+  assert.equal(
+    events.some(([type, _level, message]) => type === 'log' && /页面切换中断/.test(message)),
+    true
+  );
+});
+
+test('verification flow recovers step 8 submit after retryable transport error when oauth consent page is already ready', async () => {
+  const events = [];
+  const recoveryCalls = [];
+
+  const helpers = api.createVerificationFlowHelpers({
+    addLog: async (message, level = 'info') => {
+      events.push(['log', level, message]);
+    },
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async (_step, payload) => {
+      events.push(['complete', payload.code]);
+    },
+    confirmCustomVerificationStepBypassRequest: async () => ({ confirmed: true }),
+    getHotmailVerificationPollConfig: () => ({}),
+    getHotmailVerificationRequestTimestamp: () => 0,
+    getState: async () => ({}),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isStopError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    MAIL_2925_VERIFICATION_INTERVAL_MS: 15000,
+    MAIL_2925_VERIFICATION_MAX_ATTEMPTS: 15,
+    pollCloudflareTempEmailVerificationCode: async () => ({}),
+    pollHotmailVerificationCode: async () => ({}),
+    pollLuckmailVerificationCode: async () => ({}),
+    sendToContentScript: async (_source, message) => {
+      if (message.type === 'FILL_CODE') {
+        events.push(['submit', message.payload.code]);
+        throw new Error('The page keeping the extension port is moved into back/forward cache, so the message channel is closed.');
+      }
+      return {};
+    },
+    sendToContentScriptResilient: async (_source, message) => {
+      recoveryCalls.push(message.type);
+      if (message.type === 'STEP8_GET_STATE') {
+        return {
+          consentReady: true,
+          oauthConsentPage: true,
+          url: 'https://auth.openai.com/authorize',
+        };
+      }
+      return {};
+    },
+    sendToMailContentScriptResilient: async () => ({
+      code: '654321',
+      emailTimestamp: 123,
+    }),
+    setState: async (payload) => {
+      events.push(['state', payload.lastSignupCode || payload.lastLoginCode]);
+    },
+    setStepStatus: async () => {},
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+    VERIFICATION_POLL_MAX_ROUNDS: 5,
+  });
+
+  await helpers.resolveVerificationStep(
+    8,
+    { email: 'user@example.com', lastLoginCode: null },
+    { provider: 'qq', label: 'QQ 邮箱' },
+    {}
+  );
+
+  assert.deepStrictEqual(recoveryCalls, ['STEP8_GET_STATE']);
+  assert.deepStrictEqual(
+    events.filter(([type]) => type !== 'log'),
+    [
+      ['submit', '654321'],
+      ['state', '654321'],
+      ['complete', '654321'],
+    ]
+  );
+  assert.equal(
+    events.some(([type, _level, message]) => type === 'log' && /页面切换中断/.test(message)),
+    true
+  );
+});
+
 test('verification flow skips 2925 mailbox preclear when using a fixed login mail window and still clears after success', async () => {
   const mailMessages = [];
 
