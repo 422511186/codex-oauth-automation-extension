@@ -146,6 +146,7 @@ const inputInbucketHost = { value: 'inbucket.local' };
 const inputInbucketMailbox = { value: 'demo' };
 const inputHotmailRemoteBaseUrl = { value: 'https://hotmail.example.com' };
 const inputHotmailLocalBaseUrl = { value: 'http://127.0.0.1:17373' };
+const inputMail163HelperBaseUrl = { value: 'http://127.0.0.1:17374' };
 const inputLuckmailApiKey = { value: 'lk-api-key' };
 const inputLuckmailBaseUrl = { value: 'https://mails.example.com' };
 const selectLuckmailEmailType = { value: 'ms_graph' };

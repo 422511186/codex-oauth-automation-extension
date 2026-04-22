@@ -7,11 +7,13 @@
       chrome,
       ensureContentScriptReadyOnTab,
       ensureHotmailAccountForFlow,
+      ensureMail163AccountForFlow,
       ensureMail2925AccountForFlow,
       ensureLuckmailPurchaseForFlow,
       isGeneratedAliasProvider,
       isReusableGeneratedAliasEmail,
       isHotmailProvider,
+      isMail163Provider,
       isLuckmailProvider,
       isSignupEmailVerificationPageUrl,
       isSignupPasswordPageUrl,
@@ -193,6 +195,16 @@
           allowAllocate: true,
           markUsed: true,
           preferredAccountId: state.currentHotmailAccountId || null,
+        });
+        resolvedEmail = account.email;
+      } else if (typeof isMail163Provider === 'function'
+        && isMail163Provider(state)
+        && typeof ensureMail163AccountForFlow === 'function') {
+        const account = await ensureMail163AccountForFlow({
+          allowAllocate: true,
+          preferredAccountId: state.currentMail163AccountId || null,
+          lockedAccountId: state.autoRunLockedMail163AccountId || null,
+          markRunning: true,
         });
         resolvedEmail = account.email;
       } else if (isLuckmailProvider(state)) {

@@ -16,6 +16,7 @@
       getState,
       getTabId,
       HOTMAIL_PROVIDER,
+      MAIL163_PROVIDER,
       isTabAlive,
       isVerificationMailPollingError,
       LUCKMAIL_PROVIDER,
@@ -128,6 +129,7 @@
       throwIfStopped();
       if (
         mail.provider === HOTMAIL_PROVIDER
+        || mail.provider === MAIL163_PROVIDER
         || mail.provider === LUCKMAIL_PROVIDER
         || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
       ) {
@@ -150,7 +152,7 @@
         getRemainingTimeMs: getStep8RemainingTimeResolver(state?.oauthUrl || ''),
         requestFreshCodeFirst: false,
         targetEmail: fixedTargetEmail,
-        resendIntervalMs: (mail.provider === HOTMAIL_PROVIDER || mail.provider === '2925')
+        resendIntervalMs: (mail.provider === HOTMAIL_PROVIDER || mail.provider === MAIL163_PROVIDER || mail.provider === '2925')
           ? 0
           : STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS,
       });

@@ -3,6 +3,7 @@
 importScripts(
   'managed-alias-utils.js',
   'mail2925-utils.js',
+  'mail163-utils.js',
   'background/account-run-history.js',
   'background/contribution-oauth.js',
   'background/mail-2925-session.js',
@@ -69,6 +70,14 @@ const {
   pickMail2925AccountForRun,
   upsertMail2925AccountInList,
 } = self.Mail2925Utils;
+const {
+  findMail163Account,
+  isMail163AccountRunnable,
+  normalizeMail163Account,
+  normalizeMail163Accounts,
+  parseMail163ImportText,
+  pickMail163AccountForRun,
+} = self.Mail163Utils;
 const {
   fetchMicrosoftMailboxMessages,
 } = self.MultiPageMicrosoftEmail;
@@ -140,6 +149,7 @@ const ICLOUD_LOGIN_URLS = [
 const ICLOUD_PROVIDER = 'icloud';
 const GMAIL_PROVIDER = 'gmail';
 const HOTMAIL_PROVIDER = 'hotmail-api';
+const MAIL163_PROVIDER = '163';
 const LUCKMAIL_PROVIDER = 'luckmail-api';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
 const CLOUDFLARE_TEMP_EMAIL_GENERATOR = 'cloudflare-temp-email';
@@ -181,6 +191,7 @@ const HOTMAIL_SERVICE_MODE_REMOTE = 'remote';
 const HOTMAIL_SERVICE_MODE_LOCAL = 'local';
 const DEFAULT_HOTMAIL_REMOTE_BASE_URL = '';
 const DEFAULT_HOTMAIL_LOCAL_BASE_URL = 'http://127.0.0.1:17373';
+const DEFAULT_MAIL163_HELPER_BASE_URL = 'http://127.0.0.1:17374';
 const DEFAULT_ACCOUNT_RUN_HISTORY_HELPER_BASE_URL = DEFAULT_HOTMAIL_LOCAL_BASE_URL;
 const HOTMAIL_LOCAL_HELPER_TIMEOUT_MS = 45000;
 const DEFAULT_LUCKMAIL_PROJECT_CODE = 'openai';
@@ -274,6 +285,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   hotmailServiceMode: HOTMAIL_SERVICE_MODE_LOCAL,
   hotmailRemoteBaseUrl: DEFAULT_HOTMAIL_REMOTE_BASE_URL,
   hotmailLocalBaseUrl: DEFAULT_HOTMAIL_LOCAL_BASE_URL,
+  mail163HelperBaseUrl: DEFAULT_MAIL163_HELPER_BASE_URL,
   cloudflareDomain: '',
   cloudflareDomains: [],
   cloudflareTempEmailBaseUrl: '',
@@ -284,6 +296,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   cloudflareTempEmailDomains: [],
   hotmailAccounts: [],
   mail2925Accounts: [],
+  mail163Accounts: [],
 };
 
 const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);
@@ -359,6 +372,8 @@ const DEFAULT_STATE = {
   oauthFlowDeadlineSourceUrl: null,
   currentHotmailAccountId: null,
   currentMail2925AccountId: null,
+  currentMail163AccountId: null,
+  autoRunLockedMail163AccountId: null,
   preferredIcloudHost: '',
 };
 
@@ -796,6 +811,28 @@ function normalizeHotmailLocalBaseUrl(rawValue = '') {
   }
 }
 
+function normalizeMail163HelperBaseUrl(rawValue = '') {
+  const value = String(rawValue || '').trim();
+  if (!value) return DEFAULT_MAIL163_HELPER_BASE_URL;
+
+  try {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return DEFAULT_MAIL163_HELPER_BASE_URL;
+    }
+
+    if (['/health', '/accounts/test', '/accounts/poll-code'].includes(parsed.pathname)) {
+      parsed.pathname = '';
+      parsed.search = '';
+      parsed.hash = '';
+    }
+
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return DEFAULT_MAIL163_HELPER_BASE_URL;
+  }
+}
+
 function normalizeAccountRunHistoryHelperBaseUrl(rawValue = '') {
   const value = String(rawValue || '').trim();
   if (!value) return DEFAULT_ACCOUNT_RUN_HISTORY_HELPER_BASE_URL;
@@ -914,6 +951,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeHotmailRemoteBaseUrl(value);
     case 'hotmailLocalBaseUrl':
       return normalizeHotmailLocalBaseUrl(value);
+    case 'mail163HelperBaseUrl':
+      return normalizeMail163HelperBaseUrl(value);
     case 'cloudflareDomain':
       return normalizeCloudflareDomain(value);
     case 'cloudflareDomains':
@@ -933,6 +972,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeHotmailAccounts(value);
     case 'mail2925Accounts':
       return normalizeMail2925Accounts(value);
+    case 'mail163Accounts':
+      return normalizeMail163Accounts(value);
     default:
       return value;
   }
@@ -1113,6 +1154,8 @@ async function importSettingsBundle(configBundle) {
   const sessionUpdates = {
     ...importedSettings,
     currentHotmailAccountId: null,
+    currentMail163AccountId: null,
+    autoRunLockedMail163AccountId: null,
     email: null,
   };
 
@@ -1120,6 +1163,7 @@ async function importSettingsBundle(configBundle) {
   broadcastDataUpdate({
     ...importedSettings,
     currentHotmailAccountId: null,
+    currentMail163AccountId: null,
     ...(sessionUpdates.email !== undefined ? { email: sessionUpdates.email } : {}),
   });
 
@@ -1465,6 +1509,188 @@ function findHotmailAccount(accounts, accountId) {
   return normalizeHotmailAccounts(accounts).find((account) => account.id === accountId) || null;
 }
 
+async function syncMail163Accounts(accounts) {
+  const normalized = normalizeMail163Accounts(accounts);
+  await setPersistentSettings({ mail163Accounts: normalized });
+  await setState({ mail163Accounts: normalized });
+  broadcastDataUpdate({ mail163Accounts: normalized });
+  return normalized;
+}
+
+function isMail163Provider(stateOrProvider) {
+  const provider = typeof stateOrProvider === 'string'
+    ? stateOrProvider
+    : stateOrProvider?.mailProvider;
+  return provider === MAIL163_PROVIDER;
+}
+
+function getCurrentMail163Account(state = {}) {
+  const accountId = String(state?.currentMail163AccountId || '').trim();
+  if (!accountId) {
+    return null;
+  }
+  return findMail163Account(state.mail163Accounts || [], accountId);
+}
+
+async function upsertMail163Account(input = {}) {
+  const state = await getState();
+  const accounts = normalizeMail163Accounts(state.mail163Accounts);
+  const normalizedEmail = String(input?.email || '').trim().toLowerCase();
+  const existing = input?.id
+    ? findMail163Account(accounts, input.id)
+    : accounts.find((account) => account.email === normalizedEmail) || null;
+  const nextAccount = normalizeMail163Account({
+    ...(existing || {}),
+    ...input,
+    id: input?.id || existing?.id || crypto.randomUUID(),
+  });
+
+  if (!nextAccount.email) {
+    throw new Error('163 账号邮箱不能为空。');
+  }
+  if (!nextAccount.authCode) {
+    throw new Error('163 账号授权码不能为空。');
+  }
+
+  const nextAccounts = existing
+    ? accounts.map((account) => (account.id === nextAccount.id ? nextAccount : account))
+    : [...accounts, nextAccount];
+
+  await syncMail163Accounts(nextAccounts);
+  return nextAccount;
+}
+
+async function deleteMail163Account(accountId) {
+  const state = await getState();
+  const accounts = normalizeMail163Accounts(state.mail163Accounts);
+  const nextAccounts = accounts.filter((account) => account.id !== accountId);
+  await syncMail163Accounts(nextAccounts);
+
+  if (state.currentMail163AccountId === accountId) {
+    await setState({ currentMail163AccountId: null });
+    broadcastDataUpdate({ currentMail163AccountId: null });
+    if (isMail163Provider(state)) {
+      await setEmailState(null);
+    }
+  }
+}
+
+async function deleteMail163Accounts(mode = 'all') {
+  const state = await getState();
+  const accounts = normalizeMail163Accounts(state.mail163Accounts);
+  const targets = mode === 'success'
+    ? accounts.filter((account) => account.success === true)
+    : accounts.slice();
+  const targetIds = new Set(targets.map((account) => account.id));
+  const nextAccounts = mode === 'success'
+    ? accounts.filter((account) => !targetIds.has(account.id))
+    : [];
+
+  await syncMail163Accounts(nextAccounts);
+
+  if (state.currentMail163AccountId && targetIds.has(state.currentMail163AccountId)) {
+    await setState({ currentMail163AccountId: null });
+    broadcastDataUpdate({ currentMail163AccountId: null });
+    if (isMail163Provider(state)) {
+      await setEmailState(null);
+    }
+  }
+
+  return {
+    deletedCount: targets.length,
+    remainingCount: nextAccounts.length,
+  };
+}
+
+async function patchMail163Account(accountId, updates = {}) {
+  const state = await getState();
+  const accounts = normalizeMail163Accounts(state.mail163Accounts);
+  const account = findMail163Account(accounts, accountId);
+  if (!account) {
+    throw new Error('未找到对应的 163 账号。');
+  }
+
+  const nextAccount = normalizeMail163Account({
+    ...account,
+    ...updates,
+    id: account.id,
+  });
+  await syncMail163Accounts(accounts.map((item) => (item.id === account.id ? nextAccount : item)));
+
+  if (state.currentMail163AccountId === account.id && nextAccount.success) {
+    await setState({ currentMail163AccountId: nextAccount.id });
+    broadcastDataUpdate({ currentMail163AccountId: nextAccount.id });
+  }
+
+  return nextAccount;
+}
+
+async function setCurrentMail163Account(accountId, options = {}) {
+  const { syncEmail = true, markRunning = false } = options;
+  const state = await getState();
+  const accounts = normalizeMail163Accounts(state.mail163Accounts);
+  const account = findMail163Account(accounts, accountId);
+  if (!account) {
+    throw new Error('未找到对应的 163 账号。');
+  }
+
+  let nextAccount = account;
+  if (markRunning) {
+    nextAccount = normalizeMail163Account({
+      ...account,
+      status: 'running',
+      success: false,
+      used: false,
+      lastError: '',
+    });
+    await syncMail163Accounts(accounts.map((item) => (item.id === account.id ? nextAccount : item)));
+  }
+
+  await setState({ currentMail163AccountId: nextAccount.id });
+  broadcastDataUpdate({ currentMail163AccountId: nextAccount.id });
+  if (syncEmail) {
+    await setEmailState(nextAccount.email || null);
+  }
+  return nextAccount;
+}
+
+async function ensureMail163AccountForFlow(options = {}) {
+  const {
+    allowAllocate = true,
+    preferredAccountId = null,
+    lockedAccountId = null,
+    markRunning = false,
+  } = options;
+  const state = await getState();
+  const accounts = normalizeMail163Accounts(state.mail163Accounts);
+  let account = null;
+
+  if (lockedAccountId) {
+    account = findMail163Account(accounts, lockedAccountId);
+  }
+  if (!account && preferredAccountId) {
+    account = findMail163Account(accounts, preferredAccountId);
+  }
+  if (!account && state.currentMail163AccountId) {
+    account = findMail163Account(accounts, state.currentMail163AccountId);
+  }
+  if ((!account || !isMail163AccountRunnable(account)) && allowAllocate) {
+    account = pickMail163AccountForRun(accounts, {});
+  }
+
+  if (!account) {
+    throw new Error('没有可用的 163 号源。请先在侧边栏导入或添加邮箱与授权码。');
+  }
+  if (!isMail163AccountRunnable(account)) {
+    throw new Error(`163 号源 ${account.email || account.id} 当前不可执行。`);
+  }
+
+  return setCurrentMail163Account(account.id, {
+    syncEmail: true,
+    markRunning,
+  });
+}
+
 function isHotmailProvider(stateOrProvider) {
   const provider = typeof stateOrProvider === 'string'
     ? stateOrProvider
@@ -1653,6 +1879,92 @@ async function ensureHotmailAccountForFlow(options = {}) {
 function buildHotmailLocalEndpoint(baseUrl, path) {
   const normalizedBaseUrl = normalizeHotmailLocalBaseUrl(baseUrl);
   return new URL(path, `${normalizedBaseUrl}/`).toString();
+}
+
+function buildMail163HelperEndpoint(baseUrl, path) {
+  const normalizedBaseUrl = normalizeMail163HelperBaseUrl(baseUrl);
+  return new URL(path, `${normalizedBaseUrl}/`).toString();
+}
+
+async function requestMail163Helper(path, payload = null, options = {}) {
+  const state = await getState();
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 30000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+
+  try {
+    const response = await fetch(buildMail163HelperEndpoint(state.mail163HelperBaseUrl, path), {
+      method: payload ? 'POST' : 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...(payload ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: payload ? JSON.stringify(payload) : undefined,
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data?.ok === false) {
+      throw new Error(String(data?.error || data?.message || `163 helper 请求失败：${response.status}`));
+    }
+    return data;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`163 helper 请求超时（>${Math.round(timeoutMs / 1000)} 秒）`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function testMail163Account(accountId) {
+  const state = await getState();
+  const account = findMail163Account(state.mail163Accounts, accountId);
+  if (!account) {
+    throw new Error('未找到对应的 163 账号。');
+  }
+
+  await requestMail163Helper('/health', null, { timeoutMs: 5000 });
+  await requestMail163Helper('/accounts/test', {
+    email: account.email,
+    authCode: account.authCode,
+  }, { timeoutMs: 15000 });
+
+  await patchMail163Account(account.id, {
+    lastError: '',
+  });
+
+  return {
+    account: findMail163Account((await getState()).mail163Accounts, account.id) || account,
+  };
+}
+
+async function pollMail163VerificationCode(step, state, pollPayload = {}) {
+  const account = await ensureMail163AccountForFlow({
+    allowAllocate: true,
+    preferredAccountId: state.currentMail163AccountId || null,
+    lockedAccountId: state.autoRunLockedMail163AccountId || null,
+    markRunning: false,
+  });
+
+  const response = await requestMail163Helper('/accounts/poll-code', {
+    email: account.email,
+    authCode: account.authCode,
+    filterAfterTimestamp: Number(pollPayload.filterAfterTimestamp || 0) || 0,
+    senderFilters: Array.isArray(pollPayload.senderFilters) ? pollPayload.senderFilters : [],
+    subjectFilters: Array.isArray(pollPayload.subjectFilters) ? pollPayload.subjectFilters : [],
+    excludeCodes: Array.isArray(pollPayload.excludeCodes) ? pollPayload.excludeCodes : [],
+    maxAttempts: Math.max(1, Number(pollPayload.maxAttempts) || 5),
+    intervalMs: Math.max(1000, Number(pollPayload.intervalMs) || 3000),
+  }, {
+    timeoutMs: Math.max(15000, (Math.max(1, Number(pollPayload.maxAttempts) || 5) * Math.max(1000, Number(pollPayload.intervalMs) || 3000)) + 15000),
+  });
+
+  return {
+    code: String(response.code || '').trim(),
+    emailTimestamp: Number(response.emailTimestamp || Date.now()) || Date.now(),
+    mailId: String(response.mailId || ''),
+  };
 }
 
 async function requestHotmailRemoteMailbox(account, mailbox = 'INBOX') {
@@ -5643,6 +5955,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   clearStopRequest: () => clearStopRequest(),
   createAutoRunSessionId: () => createAutoRunSessionId(),
   getAutoRunStatusPayload,
+  getCurrentMail163Account,
   getErrorMessage,
   getFirstUnfinishedStep,
   getPendingAutoRunTimerPlan,
@@ -5651,11 +5964,13 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   getStopRequested: () => stopRequested,
   hasSavedProgress,
   isAddPhoneAuthFailure,
+  isMail163Provider,
   isRestartCurrentAttemptError,
   isSignupUserAlreadyExistsFailure,
   isStopError,
   launchAutoRunTimerPlan,
   normalizeAutoRunFallbackThreadIntervalMinutes,
+  patchMail163Account,
   persistAutoRunTimerPlan,
   resetState,
   runAutoSequenceFromStep: (...args) => runAutoSequenceFromStep(...args),
@@ -6173,6 +6488,7 @@ const signupFlowHelpers = self.MultiPageSignupFlowHelpers?.createSignupFlowHelpe
   chrome,
   ensureContentScriptReadyOnTab,
   ensureHotmailAccountForFlow,
+  ensureMail163AccountForFlow,
   ensureMail2925AccountForFlow,
   ensureLuckmailPurchaseForFlow,
   getTabId,
@@ -6180,6 +6496,7 @@ const signupFlowHelpers = self.MultiPageSignupFlowHelpers?.createSignupFlowHelpe
   isReusableGeneratedAliasEmail,
   isSignupEmailVerificationPageUrl,
   isHotmailProvider,
+  isMail163Provider,
   isLuckmailProvider,
   isSignupPasswordPageUrl,
   isTabAlive,
@@ -6205,6 +6522,7 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   getState,
   getTabId,
   HOTMAIL_PROVIDER,
+  MAIL163_PROVIDER,
   isMail2925LimitReachedError,
   isStopError,
   LUCKMAIL_PROVIDER,
@@ -6212,6 +6530,7 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   MAIL_2925_VERIFICATION_MAX_ATTEMPTS,
   pollCloudflareTempEmailVerificationCode,
   pollHotmailVerificationCode,
+  pollMail163VerificationCode,
   pollLuckmailVerificationCode,
   sendToContentScript,
   sendToMailContentScriptResilient,
@@ -6260,6 +6579,7 @@ const step4Executor = self.MultiPageBackgroundStep4?.createStep4Executor({
   getMailConfig,
   getTabId,
   HOTMAIL_PROVIDER,
+  MAIL163_PROVIDER,
   isTabAlive,
   LUCKMAIL_PROVIDER,
   CLOUDFLARE_TEMP_EMAIL_PROVIDER,
@@ -6311,6 +6631,7 @@ const step8Executor = self.MultiPageBackgroundStep8?.createStep8Executor({
   getState,
   getTabId,
   HOTMAIL_PROVIDER,
+  MAIL163_PROVIDER,
   isTabAlive,
   isVerificationMailPollingError,
   LUCKMAIL_PROVIDER,
@@ -6374,6 +6695,8 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   closeTabsByUrlPrefix,
   deleteHotmailAccount,
   deleteHotmailAccounts,
+  deleteMail163Account,
+  deleteMail163Accounts,
   deleteIcloudAlias,
   deleteUsedIcloudAliases,
   disableUsedLuckmailPurchases,
@@ -6397,6 +6720,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   findHotmailAccount,
   flushCommand,
   getCurrentLuckmailPurchase,
+  getCurrentMail163Account,
   getPendingAutoRunTimerPlan,
   getSourceLabel,
   getState,
@@ -6408,6 +6732,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   isCloudflareSecurityBlockedError: isTerminalSecurityBlockedError,
   isAutoRunLockedState,
   isHotmailProvider,
+  isMail163Provider,
   isLocalhostOAuthCallbackUrl,
   isLuckmailProvider,
   isStopError,
@@ -6421,6 +6746,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   AUTO_RUN_TIMER_KIND_SCHEDULED_START,
   notifyStepComplete,
   notifyStepError,
+  patchMail163Account,
   patchHotmailAccount,
   patchMail2925Account,
   registerTab,
@@ -6429,6 +6755,7 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   resumeAutoRun,
   scheduleAutoRun,
   selectLuckmailPurchase,
+  setCurrentMail163Account,
   setCurrentHotmailAccount,
   setCurrentMail2925Account,
   setContributionMode,
@@ -6450,7 +6777,9 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   syncHotmailAccounts,
   deleteMail2925Account,
   deleteMail2925Accounts,
+  testMail163Account,
   testHotmailAccountMailAccess,
+  upsertMail163Account,
   upsertMail2925Account,
   upsertHotmailAccount,
   verifyHotmailAccount,
@@ -6558,7 +6887,11 @@ function getMailConfig(state) {
   if (provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER) {
     return { provider: CLOUDFLARE_TEMP_EMAIL_PROVIDER, label: 'Cloudflare Temp Email' };
   }
-  if (provider === '163') {
+  if (provider === MAIL163_PROVIDER) {
+    const hasMail163PoolAccounts = normalizeMail163Accounts(state.mail163Accounts).length > 0;
+    if (hasMail163PoolAccounts) {
+      return { provider: MAIL163_PROVIDER, label: '163 邮箱（号源池）' };
+    }
     return { source: 'mail-163', url: 'https://mail.163.com/js6/main.jsp?df=mail163_letter#module=mbox.ListModule%7C%7B%22fid%22%3A1%2C%22order%22%3A%22date%22%2C%22desc%22%3Atrue%7D', label: '163 邮箱' };
   }
   if (provider === '163-vip') {

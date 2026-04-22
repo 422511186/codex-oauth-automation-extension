@@ -70,11 +70,12 @@ return { normalizeMailProvider };
 
 test('getMailConfig returns icloud mail tab config with host preference', () => {
   const bundle = extractFunction('getMailConfig');
-  const api = new Function(`
+const api = new Function(`
 const ICLOUD_PROVIDER = 'icloud';
 const GMAIL_PROVIDER = 'gmail';
 const HOTMAIL_PROVIDER = 'hotmail-api';
 const LUCKMAIL_PROVIDER = 'luckmail-api';
+const MAIL163_PROVIDER = '163';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
 function normalizeIcloudHost(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
@@ -108,11 +109,12 @@ return { getMailConfig };
 
 test('getMailConfig reuses preferred icloud host when preference is auto', () => {
   const bundle = extractFunction('getMailConfig');
-  const api = new Function(`
+const api = new Function(`
 const ICLOUD_PROVIDER = 'icloud';
 const GMAIL_PROVIDER = 'gmail';
 const HOTMAIL_PROVIDER = 'hotmail-api';
 const LUCKMAIL_PROVIDER = 'luckmail-api';
+const MAIL163_PROVIDER = '163';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
 function normalizeIcloudHost(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
@@ -146,11 +148,12 @@ return { getMailConfig };
 
 test('getMailConfig keeps provider metadata for 2925 mailboxes', () => {
   const bundle = extractFunction('getMailConfig');
-  const api = new Function(`
+const api = new Function(`
 const ICLOUD_PROVIDER = 'icloud';
 const GMAIL_PROVIDER = 'gmail';
 const HOTMAIL_PROVIDER = 'hotmail-api';
 const LUCKMAIL_PROVIDER = 'luckmail-api';
+const MAIL163_PROVIDER = '163';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
 function normalizeIcloudHost(value = '') { return String(value || '').trim().toLowerCase(); }
 function normalizeInbucketOrigin(value) { return String(value || '').trim(); }

@@ -14,6 +14,7 @@
       getState,
       getTabId,
       HOTMAIL_PROVIDER,
+      MAIL163_PROVIDER,
       isMail2925LimitReachedError,
       isStopError,
       LUCKMAIL_PROVIDER,
@@ -21,6 +22,7 @@
       MAIL_2925_VERIFICATION_MAX_ATTEMPTS,
       pollCloudflareTempEmailVerificationCode,
       pollHotmailVerificationCode,
+      pollMail163VerificationCode,
       pollLuckmailVerificationCode,
       sendToContentScript,
       sendToMailContentScriptResilient,
@@ -474,6 +476,13 @@
           ...cleanPollOverrides,
         }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码邮箱`);
         return pollHotmailVerificationCode(step, state, timedPoll.payload);
+      }
+      if (mail.provider === MAIL163_PROVIDER) {
+        const timedPoll = await applyMailPollingTimeBudget(step, {
+          ...getVerificationPollPayload(step, state),
+          ...cleanPollOverrides,
+        }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码邮箱`);
+        return pollMail163VerificationCode(step, state, timedPoll.payload);
       }
       if (mail.provider === LUCKMAIL_PROVIDER) {
         const timedPoll = await applyMailPollingTimeBudget(step, {

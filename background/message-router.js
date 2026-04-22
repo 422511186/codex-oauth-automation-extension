@@ -1,4 +1,4 @@
-(function attachBackgroundMessageRouter(root, factory) {
+﻿﻿(function attachBackgroundMessageRouter(root, factory) {
   root.MultiPageBackgroundMessageRouter = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundMessageRouterModule() {
   function createMessageRouter(deps = {}) {
@@ -37,6 +37,7 @@
       flushCommand,
       getCurrentLuckmailPurchase,
       getCurrentMail2925Account,
+      getCurrentMail163Account,
       getPendingAutoRunTimerPlan,
       getSourceLabel,
       getState,
@@ -47,6 +48,7 @@
       isCloudflareSecurityBlockedError,
       isAutoRunLockedState,
       isHotmailProvider,
+      isMail163Provider,
       isLocalhostOAuthCallbackUrl,
       isLuckmailProvider,
       isStopError,
@@ -59,6 +61,7 @@
       AUTO_RUN_TIMER_KIND_SCHEDULED_START,
       notifyStepComplete,
       notifyStepError,
+      patchMail163Account,
       patchMail2925Account,
       patchHotmailAccount,
       pollContributionStatus,
@@ -69,6 +72,7 @@
       resumeAutoRun,
       scheduleAutoRun,
       selectLuckmailPurchase,
+      setCurrentMail163Account,
       setCurrentMail2925Account,
       setCurrentHotmailAccount,
       setContributionMode,
@@ -86,10 +90,14 @@
       skipStep,
       startContributionFlow,
       startAutoRunLoop,
+      deleteMail163Account,
+      deleteMail163Accounts,
       deleteMail2925Account,
       deleteMail2925Accounts,
       syncHotmailAccounts,
+      testMail163Account,
       testHotmailAccountMailAccess,
+      upsertMail163Account,
       upsertMail2925Account,
       upsertHotmailAccount,
       verifyHotmailAccount,
@@ -185,6 +193,27 @@
               lastUsedAt: Date.now(),
             });
             await addLog('当前 Hotmail 账号已自动标记为已用。', 'ok');
+          }
+          if (
+            latestState.currentMail163AccountId
+            && typeof isMail163Provider === 'function'
+            && isMail163Provider(latestState)
+            && typeof patchMail163Account === 'function'
+          ) {
+            const completedAt = Date.now();
+            const currentMail163Account = typeof getCurrentMail163Account === 'function'
+              ? getCurrentMail163Account(latestState)
+              : null;
+            await patchMail163Account(latestState.currentMail163AccountId, {
+              status: 'success',
+              success: true,
+              used: true,
+              lastUsedAt: completedAt,
+              lastResultAt: completedAt,
+              lastError: '',
+              retryCount: currentMail163Account ? (Number(currentMail163Account.retryCount) || 0) : undefined,
+            });
+            await addLog('当前 163 号源已自动标记为成功。', 'ok');
           }
           if (String(latestState.mailProvider || '').trim().toLowerCase() === '2925' && latestState.currentMail2925AccountId) {
             await patchMail2925Account(latestState.currentMail2925AccountId, {
@@ -591,6 +620,67 @@
         case 'TEST_HOTMAIL_ACCOUNT': {
           const result = await testHotmailAccountMailAccess(String(message.payload?.accountId || ''));
           return { ok: true, ...result };
+        }
+
+        case 'UPSERT_MAIL163_ACCOUNT': {
+          if (typeof upsertMail163Account !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          const account = await upsertMail163Account(message.payload || {});
+          return { ok: true, account };
+        }
+
+        case 'DELETE_MAIL163_ACCOUNT': {
+          if (typeof deleteMail163Account !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          await deleteMail163Account(String(message.payload?.accountId || ''));
+          return { ok: true };
+        }
+
+        case 'DELETE_MAIL163_ACCOUNTS': {
+          if (typeof deleteMail163Accounts !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          const result = await deleteMail163Accounts(String(message.payload?.mode || 'all'));
+          return { ok: true, ...result };
+        }
+
+        case 'SELECT_MAIL163_ACCOUNT': {
+          if (typeof setCurrentMail163Account !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          const account = await setCurrentMail163Account(String(message.payload?.accountId || ''), { markRunning: false });
+          return { ok: true, account };
+        }
+
+        case 'TEST_MAIL163_ACCOUNT': {
+          if (typeof testMail163Account !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          const result = await testMail163Account(String(message.payload?.accountId || ''));
+          return { ok: true, ...result };
+        }
+
+        case 'RETRY_MAIL163_ACCOUNT': {
+          if (typeof patchMail163Account !== 'function' || typeof setCurrentMail163Account !== 'function') {
+            throw new Error('163 号源管理能力尚未接入。');
+          }
+          const accountId = String(message.payload?.accountId || '').trim();
+          await patchMail163Account(accountId, {
+            status: 'idle',
+            success: false,
+            used: false,
+            disabled: false,
+            lastError: '',
+            lastResultAt: 0,
+          });
+          const nextAccount = await setCurrentMail163Account(accountId, {
+            syncEmail: true,
+            markRunning: false,
+          });
+          await addLog(`163 号源已重置为可重试：${nextAccount?.email || accountId}`, 'ok');
+          return { ok: true, account: nextAccount };
         }
 
         case 'UPSERT_MAIL2925_ACCOUNT': {

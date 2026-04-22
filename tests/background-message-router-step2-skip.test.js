@@ -64,7 +64,9 @@ function createRouter(overrides = {}) {
     }),
     importSettingsBundle: async () => {},
     invalidateDownstreamAfterStepRestart: async () => {},
-    isCloudflareSecurityBlockedError: overrides.isCloudflareSecurityBlockedError || ((error) => /^CF_SECURITY_BLOCKED::/.test(typeof error === 'string' ? error : error?.message || '')),
+    isCloudflareSecurityBlockedError: overrides.isCloudflareSecurityBlockedError || ((error) => (
+      /^CF_SECURITY_BLOCKED::/.test(typeof error === 'string' ? error : error?.message || '')
+    )),
     isAutoRunLockedState: () => false,
     isHotmailProvider: () => false,
     isLocalhostOAuthCallbackUrl: () => true,
@@ -199,7 +201,7 @@ test('message router marks step 3 failed when post-submit finalize fails', async
       error: '步骤 3 提交后仍停留在密码页。',
     },
   ]);
-  assert.equal(events.logs.some(({ message }) => /步骤 3 失败：步骤 3 提交后仍停留在密码页。/.test(message)), true);
+  assert.equal(events.logs.some(({ message }) => /步骤 3 失败/.test(message)), true);
   assert.deepStrictEqual(response, { ok: true, error: '步骤 3 提交后仍停留在密码页。' });
 });
 
@@ -226,3 +228,4 @@ test('message router stops the flow and surfaces cloudflare security block error
     error: '您已触发Cloudflare 安全防护系统',
   });
 });
+

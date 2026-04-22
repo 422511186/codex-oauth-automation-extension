@@ -13,6 +13,7 @@
       getMailConfig,
       getTabId,
       HOTMAIL_PROVIDER,
+      MAIL163_PROVIDER,
       isTabAlive,
       LUCKMAIL_PROVIDER,
       CLOUDFLARE_TEMP_EMAIL_PROVIDER,
@@ -100,6 +101,7 @@
       throwIfStopped();
       if (
         mail.provider === HOTMAIL_PROVIDER
+        || mail.provider === MAIL163_PROVIDER
         || mail.provider === LUCKMAIL_PROVIDER
         || mail.provider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
       ) {
@@ -124,6 +126,7 @@
 
       const shouldRequestFreshCodeFirst = ![
         HOTMAIL_PROVIDER,
+        MAIL163_PROVIDER,
         CLOUDFLARE_TEMP_EMAIL_PROVIDER,
       ].includes(mail.provider);
 

@@ -15,6 +15,7 @@
       clearStopRequest,
       createAutoRunSessionId,
       getAutoRunStatusPayload,
+      getCurrentMail163Account,
       getErrorMessage,
       getFirstUnfinishedStep,
       getPendingAutoRunTimerPlan,
@@ -22,11 +23,13 @@
       getState,
       hasSavedProgress,
       isAddPhoneAuthFailure,
+      isMail163Provider,
       isRestartCurrentAttemptError,
       isSignupUserAlreadyExistsFailure,
       isStopError,
       launchAutoRunTimerPlan,
       normalizeAutoRunFallbackThreadIntervalMinutes,
+      patchMail163Account,
       persistAutoRunTimerPlan,
       resetState,
       runAutoSequenceFromStep,
@@ -139,6 +142,53 @@
       }
     }
 
+    function normalizeLockedMail163AccountId(value) {
+      const normalized = String(value || '').trim();
+      return normalized || null;
+    }
+
+    async function syncCurrentMail163AttemptState(status, reason = '', options = {}) {
+      if (typeof patchMail163Account !== 'function' || typeof getCurrentMail163Account !== 'function') {
+        return null;
+      }
+
+      const state = await getState();
+      if (typeof isMail163Provider === 'function' && !isMail163Provider(state)) {
+        return null;
+      }
+
+      const account = getCurrentMail163Account(state);
+      if (!account?.id) {
+        return null;
+      }
+
+      const updates = {
+        status,
+        success: false,
+        used: false,
+        lastError: String(reason || '').trim(),
+        lastResultAt: Date.now(),
+      };
+
+      if (options.incrementRetryCount) {
+        updates.retryCount = Math.max(0, Number(account.retryCount) || 0) + 1;
+      }
+
+      return patchMail163Account(account.id, updates);
+    }
+
+    async function markCurrentMail163AttemptFailed(reason = '') {
+      return syncCurrentMail163AttemptState('failed', reason, {
+        incrementRetryCount: true,
+      });
+    }
+
+    async function markCurrentMail163AttemptStopped(reason = '') {
+      return syncCurrentMail163AttemptState('stopped', reason, {
+        incrementRetryCount: false,
+      });
+    }
+
     async function skipAutoRunCountdown() {
       const state = await getState();
       const plan = getPendingAutoRunTimerPlan(state);
@@ -242,6 +292,9 @@
         autoRunTimerPlan: null,
         scheduledAutoRunPlan: null,
       });
+      await setState({
+        autoRunLockedMail163AccountId: null,
+      });
       clearStopRequest();
     }
 
@@ -279,6 +332,10 @@
 
       const autoRunSkipFailures = Boolean(options.autoRunSkipFailures);
       const initialMode = options.mode === 'continue' ? 'continue' : 'restart';
+      const startingState = await getState();
+      const lockedMail163AccountId = options.lockedMail163AccountId !== undefined
+        ? normalizeLockedMail163AccountId(options.lockedMail163AccountId)
+        : normalizeLockedMail163AccountId(startingState.autoRunLockedMail163AccountId);
       const resumeCurrentRun = Number.isInteger(options.resumeCurrentRun) && options.resumeCurrentRun > 0
         ? Math.min(totalRuns, options.resumeCurrentRun)
         : 1;
@@ -304,7 +361,7 @@
       }
 
       let successfulRuns = roundSummaries.filter((item) => item.status === 'success').length;
-      const initialState = await getState();
+      const initialState = startingState;
       const initialPhase = continueCurrentOnFirstAttempt && getRunningSteps(initialState.stepStatuses).length
         ? 'waiting_step'
         : 'running';
@@ -313,6 +370,7 @@
       await setState({
         autoRunSessionId: sessionId,
         autoRunSkipFailures,
+        autoRunLockedMail163AccountId: lockedMail163AccountId,
         autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
         ...getAutoRunStatusPayload(initialPhase, {
           currentRun: showResumePosition ? resumeCurrentRun : 0,
@@ -375,6 +433,10 @@
               gmailBaseEmail: prevState.gmailBaseEmail,
               mail2925BaseEmail: prevState.mail2925BaseEmail,
               currentMail2925AccountId: prevState.currentMail2925AccountId,
+              mail163HelperBaseUrl: prevState.mail163HelperBaseUrl,
+              mail163Accounts: prevState.mail163Accounts,
+              currentMail163AccountId: prevState.currentMail163AccountId,
+              autoRunLockedMail163AccountId: prevState.autoRunLockedMail163AccountId,
               emailPrefix: prevState.emailPrefix,
               inbucketHost: prevState.inbucketHost,
               inbucketMailbox: prevState.inbucketMailbox,
@@ -446,6 +508,7 @@
           } catch (err) {
             if (isStopError(err)) {
               stoppedEarly = true;
+              await markCurrentMail163AttemptStopped(getErrorMessage(err));
               await appendRoundRecordIfNeeded('stopped', getErrorMessage(err));
               await addLog(`第 ${targetRun}/${totalRuns} 轮已被用户停止`, 'warn');
               await broadcastAutoRunStatus('stopped', {
@@ -459,6 +522,7 @@
 
             const reason = getErrorMessage(err);
             roundSummary.failureReasons.push(reason);
+            await markCurrentMail163AttemptFailed(reason);
             const blockedByAddPhone = typeof isAddPhoneAuthFailure === 'function' && isAddPhoneAuthFailure(err);
             const blockedBySignupUserAlreadyExists = typeof isSignupUserAlreadyExistsFailure === 'function'
               && isSignupUserAlreadyExistsFailure(err);
@@ -702,6 +766,7 @@
       const afterRuntime = runtime.get();
       await setState({
         autoRunSessionId: 0,
+        autoRunLockedMail163AccountId: null,
         autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
         autoRunTimerPlan: null,
         scheduledAutoRunPlan: null,

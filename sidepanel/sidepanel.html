@@ -455,6 +455,51 @@
         <div id="hotmail-accounts-list" class="hotmail-accounts-list"></div>
       </div>
     </div>
+    <div id="mail163-section" class="data-card hotmail-card" style="display:none;">
+      <div class="section-mini-header">
+        <div class="section-mini-copy">
+          <span class="section-label">163 号源池</span>
+        </div>
+        <div class="section-mini-actions">
+          <button id="btn-toggle-mail163-form" class="btn btn-outline btn-xs" type="button" aria-expanded="false">添加账号</button>
+          <button id="btn-delete-all-mail163-accounts" class="btn btn-ghost btn-xs" type="button">全部删除</button>
+          <button id="btn-toggle-mail163-list" class="btn btn-ghost btn-xs" type="button" aria-expanded="false">展开列表</button>
+        </div>
+      </div>
+      <div class="data-row">
+        <span class="data-label">本地 Helper</span>
+        <input type="text" id="input-mail163-helper-base-url" class="data-input mono" placeholder="http://127.0.0.1:17374" />
+      </div>
+      <div id="mail163-form-shell" class="account-pool-form-shell" hidden>
+        <div class="data-row">
+          <span class="data-label">邮箱</span>
+          <input type="text" id="input-mail163-email" class="data-input" placeholder="name@163.com" />
+        </div>
+        <div class="data-row">
+          <span class="data-label">授权码</span>
+          <input type="password" id="input-mail163-auth-code" class="data-input" placeholder="163 客户端授权码" />
+        </div>
+        <div class="data-row hotmail-actions-row">
+          <span class="data-label"></span>
+          <div class="data-inline account-pool-actions-inline">
+            <button id="btn-add-mail163-account" class="btn btn-primary btn-sm" type="button">添加账号</button>
+            <button id="btn-load-mail163-file" class="btn btn-outline btn-sm account-pool-import-action" type="button">选择 TXT</button>
+            <button id="btn-import-mail163-accounts" class="btn btn-outline btn-sm account-pool-import-action" type="button">导入号源</button>
+          </div>
+        </div>
+        <div class="data-row hotmail-import-row">
+          <span class="data-label">TXT 内容</span>
+          <div class="hotmail-import-box">
+            <textarea id="input-mail163-import" class="data-textarea mono"
+              placeholder="每行：邮箱 空格 授权码&#10;name1@163.com xxxxxxxx&#10;name2@163.com yyyyyyyy"></textarea>
+            <input id="input-mail163-import-file" type="file" accept=".txt,text/plain" hidden />
+          </div>
+        </div>
+      </div>
+      <div id="mail163-list-shell" class="hotmail-list-shell is-collapsed">
+        <div id="mail163-accounts-list" class="hotmail-accounts-list"></div>
+      </div>
+    </div>
     <div id="mail2925-section" class="data-card hotmail-card" style="display:none;">
       <div class="section-mini-header">
         <div class="section-mini-copy">
@@ -727,6 +772,7 @@
   <input id="input-import-settings-file" type="file" accept=".json,application/json" hidden />
   <script src="../managed-alias-utils.js"></script>
   <script src="../mail2925-utils.js"></script>
+  <script src="../mail163-utils.js"></script>
   <script src="../icloud-utils.js"></script>
   <script src="../hotmail-utils.js"></script>
   <script src="../luckmail-utils.js"></script>
@@ -735,6 +781,7 @@
   <script src="contribution-content-update-service.js"></script>
   <script src="account-pool-ui.js"></script>
   <script src="hotmail-manager.js"></script>
+  <script src="mail-163-manager.js"></script>
   <script src="mail-2925-manager.js"></script>
   <script src="icloud-manager.js"></script>
   <script src="luckmail-manager.js"></script>

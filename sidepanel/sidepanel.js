@@ -158,6 +158,21 @@ const btnToggleHotmailList = document.getElementById('btn-toggle-hotmail-list');
 const hotmailFormShell = document.getElementById('hotmail-form-shell');
 const hotmailListShell = document.getElementById('hotmail-list-shell');
 const hotmailAccountsList = document.getElementById('hotmail-accounts-list');
+const mail163Section = document.getElementById('mail163-section');
+const inputMail163HelperBaseUrl = document.getElementById('input-mail163-helper-base-url');
+const inputMail163Email = document.getElementById('input-mail163-email');
+const inputMail163AuthCode = document.getElementById('input-mail163-auth-code');
+const inputMail163Import = document.getElementById('input-mail163-import');
+const inputMail163ImportFile = document.getElementById('input-mail163-import-file');
+const btnAddMail163Account = document.getElementById('btn-add-mail163-account');
+const btnLoadMail163File = document.getElementById('btn-load-mail163-file');
+const btnImportMail163Accounts = document.getElementById('btn-import-mail163-accounts');
+const btnDeleteAllMail163Accounts = document.getElementById('btn-delete-all-mail163-accounts');
+const btnToggleMail163Form = document.getElementById('btn-toggle-mail163-form');
+const btnToggleMail163List = document.getElementById('btn-toggle-mail163-list');
+const mail163FormShell = document.getElementById('mail163-form-shell');
+const mail163ListShell = document.getElementById('mail163-list-shell');
+const mail163AccountsList = document.getElementById('mail163-accounts-list');
 const inputMail2925Email = document.getElementById('input-mail2925-email');
 const inputMail2925Password = document.getElementById('input-mail2925-password');
 const inputMail2925Import = document.getElementById('input-mail2925-import');
@@ -526,6 +541,7 @@ let contributionContentSnapshotRequestInFlight = null;
 const EYE_OPEN_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_CLOSED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19C5 19 1 12 1 12a21.77 21.77 0 0 1 5.06-6.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>';
 const COPY_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const parseMail163ImportText = window.Mail163Utils?.parseMail163ImportText;
 const parseHotmailImportText = window.HotmailUtils?.parseHotmailImportText;
 const normalizeHotmailServiceModeFromUtils = window.HotmailUtils?.normalizeHotmailServiceMode;
 const shouldClearHotmailCurrentSelection = window.HotmailUtils?.shouldClearHotmailCurrentSelection;
@@ -533,6 +549,8 @@ const upsertHotmailAccountInList = window.HotmailUtils?.upsertHotmailAccountInLi
 const filterHotmailAccountsByUsage = window.HotmailUtils?.filterHotmailAccountsByUsage;
 const getHotmailBulkActionLabel = window.HotmailUtils?.getHotmailBulkActionLabel;
 const getHotmailListToggleLabel = window.HotmailUtils?.getHotmailListToggleLabel;
+const normalizeMail163Account = window.Mail163Utils?.normalizeMail163Account;
+const normalizeMail163Accounts = window.Mail163Utils?.normalizeMail163Accounts;
 const normalizeLuckmailTimestampValue = window.LuckMailUtils?.normalizeTimestamp
   || ((value) => {
     const timestamp = Date.parse(String(value || ''));
@@ -548,6 +566,7 @@ const normalizeIcloudHost = window.IcloudUtils?.normalizeIcloudHost
   });
 const getIcloudLoginUrlForHost = window.IcloudUtils?.getIcloudLoginUrlForHost
   || ((host) => host === 'icloud.com.cn' ? 'https://www.icloud.com.cn/' : (host === 'icloud.com' ? 'https://www.icloud.com/' : ''));
+const DEFAULT_MAIL163_HELPER_BASE_URL = 'http://127.0.0.1:17374';
 
 btnAutoCancelSchedule?.remove();
 const MAIL_PROVIDER_LOGIN_CONFIGS = {
@@ -1498,6 +1517,9 @@ function collectSettingsPayload() {
     hotmailServiceMode: getSelectedHotmailServiceMode(),
     hotmailRemoteBaseUrl: inputHotmailRemoteBaseUrl.value.trim(),
     hotmailLocalBaseUrl: inputHotmailLocalBaseUrl.value.trim(),
+    // Keep collectSettingsPayload self-contained because tests extract only this function.
+    // Background will normalize/validate this value before using it.
+    mail163HelperBaseUrl: String(inputMail163HelperBaseUrl?.value || '').trim(),
     luckmailApiKey: inputLuckmailApiKey.value,
     luckmailBaseUrl: normalizeLuckmailBaseUrl(inputLuckmailBaseUrl.value),
     luckmailEmailType: normalizeLuckmailEmailType(selectLuckmailEmailType.value),
@@ -1908,6 +1930,9 @@ function applySettingsState(state) {
   setHotmailServiceMode(state?.hotmailServiceMode);
   inputHotmailRemoteBaseUrl.value = state?.hotmailRemoteBaseUrl || '';
   inputHotmailLocalBaseUrl.value = state?.hotmailLocalBaseUrl || '';
+  if (inputMail163HelperBaseUrl) {
+    inputMail163HelperBaseUrl.value = normalizeMail163HelperBaseUrlValue(state?.mail163HelperBaseUrl);
+  }
   inputLuckmailApiKey.value = state?.luckmailApiKey || '';
   inputLuckmailBaseUrl.value = normalizeLuckmailBaseUrl(state?.luckmailBaseUrl);
   selectLuckmailEmailType.value = normalizeLuckmailEmailType(state?.luckmailEmailType);
@@ -2469,6 +2494,37 @@ function getCurrentHotmailEmail(state = latestState) {
   return String(getCurrentHotmailAccount(state)?.email || '').trim();
 }
 
+function getMail163Accounts(state = latestState) {
+  if (typeof normalizeMail163Accounts === 'function') {
+    return normalizeMail163Accounts(state?.mail163Accounts);
+  }
+  return Array.isArray(state?.mail163Accounts) ? state.mail163Accounts : [];
+}
+
+function getCurrentMail163Account(state = latestState) {
+  const currentId = state?.currentMail163AccountId;
+  return getMail163Accounts(state).find((account) => account.id === currentId) || null;
+}
+
+function getCurrentMail163Email(state = latestState) {
+  return String(getCurrentMail163Account(state)?.email || '').trim();
+}
+
+function normalizeMail163HelperBaseUrlValue(value = '') {
+  const rawValue = String(value || '').trim();
+  if (!rawValue) {
+    return DEFAULT_MAIL163_HELPER_BASE_URL;
+  }
+  try {
+    const parsed = new URL(rawValue);
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return DEFAULT_MAIL163_HELPER_BASE_URL;
+  }
+}
+
 function getMail2925Accounts(state = latestState) {
   return Array.isArray(state?.mail2925Accounts) ? state.mail2925Accounts : [];
 }
@@ -2544,6 +2600,13 @@ function formatLuckmailDateTime(value) {
 }
 
 function getMailProviderLoginConfig(provider = selectMailProvider.value) {
+  if (String(provider || '').trim() === '163' && getMail163Accounts().length > 0) {
+    return {
+      label: '163 本地 Helper',
+      buttonLabel: '测试',
+      url: '',
+    };
+  }
   return MAIL_PROVIDER_LOGIN_CONFIGS[String(provider || '').trim()] || null;
 }
 
@@ -2631,7 +2694,13 @@ function updateMailLoginButtonState() {
 
   const config = getMailProviderLoginConfig();
   const loginUrl = getMailProviderLoginUrl();
-  btnMailLogin.disabled = !loginUrl;
+  const useMail163Pool = selectMailProvider.value === '163' && getMail163Accounts().length > 0;
+  btnMailLogin.disabled = useMail163Pool ? getMail163Accounts().length === 0 : !loginUrl;
+  btnMailLogin.textContent = config?.buttonLabel || '登录';
+  btnMailLogin.title = useMail163Pool
+    ? '校验当前 163 号源与本地 Helper 连通性'
+    : (loginUrl ? `打开 ${config.label} 登录页` : '当前邮箱服务没有可跳转的登录页');
+  return;
   btnMailLogin.textContent = config?.buttonLabel || '登录';
   btnMailLogin.title = loginUrl ? `打开 ${config.label} 登录页` : '当前邮箱服务没有可跳转的登录页';
 }
@@ -2641,6 +2710,8 @@ function updateMailProviderUI() {
   const useGmail = selectMailProvider.value === GMAIL_PROVIDER;
   const useMail2925 = selectMailProvider.value === '2925';
   const useMail2925AccountPool = useMail2925 && Boolean(inputMail2925UseAccountPool?.checked);
+  const useMail163 = selectMailProvider.value === '163';
+  const useMail163Pool = useMail163 && getMail163Accounts().length > 0;
   const mail2925Mode = getSelectedMail2925Mode();
   const useGeneratedAlias = usesGeneratedAliasMailProvider(selectMailProvider.value, mail2925Mode);
   const useInbucket = selectMailProvider.value === 'inbucket';
@@ -2648,7 +2719,7 @@ function updateMailProviderUI() {
   const useLuckmail = isLuckmailProvider();
   const useCustomEmail = isCustomMailProvider();
   const useIcloudProvider = isIcloudMailProvider();
-  const useEmailGenerator = !useHotmail && !useLuckmail && !useGeneratedAlias && !useCustomEmail;
+  const useEmailGenerator = !useHotmail && !useLuckmail && !useGeneratedAlias && !useCustomEmail && !useMail163Pool;
   const useCloudflareTempEmailProvider = selectMailProvider.value === 'cloudflare-temp-email';
   const aliasUiCopy = useGeneratedAlias
     ? getManagedAliasProviderUiCopy(selectMailProvider.value, mail2925Mode)
@@ -2708,6 +2779,9 @@ function updateMailProviderUI() {
   if (hotmailSection) {
     hotmailSection.style.display = useHotmail ? '' : 'none';
   }
+  if (mail163Section) {
+    mail163Section.style.display = useMail163 ? '' : 'none';
+  }
   if (mail2925Section) {
     mail2925Section.style.display = useMail2925AccountPool ? '' : 'none';
   }
@@ -2726,7 +2800,7 @@ function updateMailProviderUI() {
   }
   inputEmailPrefix.style.display = '';
   inputEmailPrefix.readOnly = false;
-  selectEmailGenerator.disabled = useHotmail || useLuckmail || useGeneratedAlias || useCustomEmail;
+  selectEmailGenerator.disabled = useHotmail || useLuckmail || useGeneratedAlias || useCustomEmail || useMail163Pool;
   if (useGmail) {
     labelEmailPrefix.textContent = 'Gmail 原邮箱';
     inputEmailPrefix.placeholder = '例如 yourname@gmail.com';
@@ -2742,8 +2816,8 @@ function updateMailProviderUI() {
   if (rowHotmailLocalBaseUrl) {
     rowHotmailLocalBaseUrl.style.display = useHotmail && hotmailServiceMode === HOTMAIL_SERVICE_MODE_LOCAL ? '' : 'none';
   }
-  btnFetchEmail.hidden = useHotmail || useLuckmail || useCustomEmail;
-  inputEmail.readOnly = useHotmail || useLuckmail;
+  btnFetchEmail.hidden = useHotmail || useLuckmail || useCustomEmail || useMail163Pool;
+  inputEmail.readOnly = useHotmail || useLuckmail || useMail163Pool;
   inputEmail.placeholder = useHotmail
     ? '由 Hotmail 账号池自动分配'
     : (useLuckmail
@@ -2755,7 +2829,10 @@ function updateMailProviderUI() {
   if (!useHotmail && !useLuckmail) {
     inputEmail.placeholder = uiCopy.placeholder;
   }
-  btnFetchEmail.disabled = useLuckmail || useCustomEmail || isAutoRunLockedPhase();
+  if (useMail163Pool) {
+    inputEmail.placeholder = '步骤 2 将自动从 163 号源池分配邮箱';
+  }
+  btnFetchEmail.disabled = useLuckmail || useCustomEmail || useMail163Pool || isAutoRunLockedPhase();
   if (!btnFetchEmail.disabled) {
     btnFetchEmail.textContent = uiCopy.buttonLabel;
   }
@@ -2781,15 +2858,21 @@ function updateMailProviderUI() {
         : '当前已启用 2925 号池模式，步骤 4 / 8 遇到登录页时会优先使用下拉框选中的账号自动登录')
       : '当前已启用 2925 号池模式，请先在下方 2925 账号池中添加账号并选择邮箱';
   }
+  if (autoHintText && useMail163Pool) {
+    autoHintText.textContent = '步骤 2 会自动从 163 号源池分配邮箱，步骤 4/8 通过本地 Helper 收码';
+  }
   if (autoHintText && showCloudflareTempEmailReceiveMailbox) {
     autoHintText.textContent = '若注册邮箱会转发到 Cloudflare Temp Email，请在“邮件接收”中填写实际接收转发邮件的邮箱。';
   }
   if (useHotmail) {
     inputEmail.value = getCurrentHotmailEmail();
+  } else if (useMail163Pool) {
+    inputEmail.value = getCurrentMail163Email();
   } else if (useLuckmail) {
     inputEmail.value = getCurrentLuckmailEmail();
   }
   renderHotmailAccounts();
+  renderMail163Accounts();
   if (useMail2925) {
     renderMail2925Accounts();
   }
@@ -3211,6 +3294,53 @@ const renderHotmailAccounts = hotmailManager?.renderHotmailAccounts
 const bindHotmailEvents = hotmailManager?.bindHotmailEvents
   || (() => { });
 bindHotmailEvents();
+
+const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
+  state: {
+    getLatestState: () => latestState,
+    syncLatestState,
+  },
+  dom: {
+    btnAddMail163Account,
+    btnDeleteAllMail163Accounts,
+    btnImportMail163Accounts,
+    btnLoadMail163File,
+    btnToggleMail163Form,
+    btnToggleMail163List,
+    inputEmail,
+    inputMail163AuthCode,
+    inputMail163Email,
+    inputMail163Import,
+    inputMail163ImportFile,
+    mail163AccountsList,
+    mail163FormShell,
+    mail163ListShell,
+    selectMailProvider,
+  },
+  helpers: {
+    copyTextToClipboard,
+    escapeHtml,
+    getMail163Accounts,
+    openConfirmModal,
+    showToast,
+  },
+  runtime: {
+    sendMessage: (message) => chrome.runtime.sendMessage(message),
+  },
+  constants: {
+    copyIcon: COPY_ICON,
+    displayTimeZone: DISPLAY_TIMEZONE,
+    expandedStorageKey: 'multipage-mail163-list-expanded',
+  },
+  mail163Utils: window.Mail163Utils || {},
+});
+const initMail163ListExpandedState = mail163Manager?.initMail163ListExpandedState
+  || (() => { });
+const renderMail163Accounts = mail163Manager?.renderMail163Accounts
+  || (() => { });
+const bindMail163Events = mail163Manager?.bindMail163Events
+  || (() => { });
+bindMail163Events();
 
 const mail2925Manager = window.SidepanelMail2925Manager?.createMail2925Manager({
   state: {
@@ -3714,6 +3844,30 @@ btnToggleVpsPassword.addEventListener('click', () => {
 btnMailLogin?.addEventListener('click', async () => {
   const config = getMailProviderLoginConfig();
   const loginUrl = getMailProviderLoginUrl();
+  const provider = String(selectMailProvider.value || '').trim();
+  if (provider === '163' && getMail163Accounts().length > 0) {
+    const currentAccount = getCurrentMail163Account() || getMail163Accounts()[0] || null;
+    if (!currentAccount?.id) {
+      showToast('请先在 163 号源池中添加账号。', 'warn');
+      return;
+    }
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'TEST_MAIL163_ACCOUNT',
+        source: 'sidepanel',
+        payload: { accountId: currentAccount.id },
+      });
+      if (response?.error) {
+        throw new Error(response.error);
+      }
+      showToast(`163 号源 ${response.account.email} 校验通过`, 'success', 2200);
+    } catch (err) {
+      showToast(`校验 163 Helper 失败：${err.message}`, 'error');
+    }
+    return;
+  }
+
   if (!config || !loginUrl) {
     return;
   }
@@ -4047,6 +4201,15 @@ inputVpsPassword.addEventListener('blur', () => {
   input?.addEventListener('blur', () => {
     saveSettings({ silent: true }).catch(() => { });
   });
+});
+
+inputMail163HelperBaseUrl?.addEventListener('input', () => {
+  markSettingsDirty(true);
+  scheduleSettingsAutoSave();
+});
+inputMail163HelperBaseUrl?.addEventListener('blur', () => {
+  inputMail163HelperBaseUrl.value = normalizeMail163HelperBaseUrlValue(inputMail163HelperBaseUrl.value);
+  saveSettings({ silent: true }).catch(() => { });
 });
 
 [inputLuckmailApiKey, inputLuckmailBaseUrl, inputLuckmailDomain].forEach((input) => {
@@ -4563,6 +4726,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       updateProgressCounter();
       updateButtonStates();
       renderHotmailAccounts();
+      renderMail163Accounts();
       renderMail2925Accounts();
       if (isLuckmailProvider()) {
         queueLuckmailPurchaseRefresh();
@@ -4618,6 +4782,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           inputEmail.value = getCurrentHotmailEmail();
         }
       }
+      if (message.payload.currentMail163AccountId !== undefined || message.payload.mail163Accounts !== undefined) {
+        renderMail163Accounts();
+        if (selectMailProvider.value === '163' && getMail163Accounts().length > 0) {
+          inputEmail.value = getCurrentMail163Email();
+        }
+      }
       if (message.payload.currentMail2925AccountId !== undefined || message.payload.mail2925Accounts !== undefined) {
         renderMail2925Accounts();
         if (selectMailProvider.value === '2925') {
@@ -4652,6 +4822,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message.payload.accountRunHistoryHelperBaseUrl !== undefined && inputAccountRunHistoryHelperBaseUrl) {
         inputAccountRunHistoryHelperBaseUrl.value = normalizeAccountRunHistoryHelperBaseUrlValue(message.payload.accountRunHistoryHelperBaseUrl);
+      }
+      if (message.payload.mail163HelperBaseUrl !== undefined && inputMail163HelperBaseUrl) {
+        inputMail163HelperBaseUrl.value = normalizeMail163HelperBaseUrlValue(message.payload.mail163HelperBaseUrl);
       }
       if (message.payload.icloudHostPreference !== undefined && selectIcloudHostPreference) {
         const hostPreference = String(message.payload.icloudHostPreference || '').trim().toLowerCase();
@@ -4792,6 +4965,7 @@ document.addEventListener('scroll', () => {
 initializeManualStepActions();
 initTheme();
 initHotmailListExpandedState();
+initMail163ListExpandedState();
 initMail2925ListExpandedState();
 updateSaveButtonState();
 updateConfigMenuControls();
