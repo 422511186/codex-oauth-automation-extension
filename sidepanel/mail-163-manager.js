@@ -148,6 +148,11 @@
       return normalizedCount > 0 ? `导出备份（${normalizedCount}）` : '导出备份';
     }
 
+    function getBulkTestActionText(count) {
+      const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+      return normalizedCount > 0 ? `批量测试当前页签（${normalizedCount}）` : '批量测试当前页签';
+    }
+
     function updateMail163FilterButtons(currentState = state.getLatestState()) {
       const filterButtons = Array.isArray(dom.mail163FilterButtons) ? dom.mail163FilterButtons : [];
       if (!filterButtons.length) {
@@ -190,6 +195,10 @@
       if (dom.btnExportMail163Accounts) {
         dom.btnExportMail163Accounts.textContent = getExportActionText(visibleCount);
         dom.btnExportMail163Accounts.disabled = visibleCount === 0;
+      }
+      if (dom.btnBulkTestMail163Accounts) {
+        dom.btnBulkTestMail163Accounts.textContent = getBulkTestActionText(visibleCount);
+        dom.btnBulkTestMail163Accounts.disabled = visibleCount === 0 || actionInFlight;
       }
       if (dom.mail163ListShell) {
         dom.mail163ListShell.classList.toggle('is-expanded', listExpanded);
@@ -670,6 +679,128 @@
       helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源备份`, 'success', 2200);
     }
 
+    function buildMail163BulkTestSuccessUpdates(account) {
+      const status = getAccountStatus(account);
+      if (status === 'failed' || status === 'stopped') {
+        return {
+          status: 'idle',
+          success: false,
+          used: false,
+          disabled: false,
+          lastError: '',
+          lastResultAt: 0,
+        };
+      }
+      return null;
+    }
+
+    function buildMail163BulkTestFailureUpdates(error) {
+      return {
+        status: 'failed',
+        success: false,
+        used: false,
+        lastError: String(error?.message || error || '测试失败'),
+        lastResultAt: Date.now(),
+      };
+    }
+
+    async function patchMail163AccountFromSidepanel(accountId, updates) {
+      const response = await runtime.sendMessage({
+        type: 'PATCH_MAIL163_ACCOUNT',
+        source: 'sidepanel',
+        payload: { accountId, updates },
+      });
+      if (response?.error) {
+        throw new Error(response.error);
+      }
+      return response.account;
+    }
+
+    async function handleBulkTestMail163Accounts() {
+      if (actionInFlight) return;
+
+      const accounts = getFilteredMail163Accounts();
+      if (!accounts.length) {
+        helpers.showToast('当前页签没有可测试的 163 号源。', 'warn');
+        return;
+      }
+
+      const originalButtonText = String(dom.btnBulkTestMail163Accounts?.textContent || '');
+      const summary = {
+        total: accounts.length,
+        passed: 0,
+        failed: 0,
+        resetToIdle: 0,
+      };
+
+      actionInFlight = true;
+      if (dom.btnBulkTestMail163Accounts) {
+        dom.btnBulkTestMail163Accounts.disabled = true;
+        dom.btnBulkTestMail163Accounts.textContent = `批量测试中（0/${accounts.length}）`;
+      }
+
+      try {
+        for (let index = 0; index < accounts.length; index += 1) {
+          const account = accounts[index];
+          if (dom.btnBulkTestMail163Accounts) {
+            dom.btnBulkTestMail163Accounts.textContent = `批量测试中（${index + 1}/${accounts.length}）`;
+          }
+
+          try {
+            const response = await runtime.sendMessage({
+              type: 'TEST_MAIL163_ACCOUNT',
+              source: 'sidepanel',
+              payload: { accountId: account.id },
+            });
+            if (response?.error) {
+              throw new Error(response.error);
+            }
+
+            const successUpdates = buildMail163BulkTestSuccessUpdates(account);
+            const nextAccount = successUpdates
+              ? await patchMail163AccountFromSidepanel(account.id, successUpdates)
+              : response.account;
+
+            if (successUpdates) {
+              summary.resetToIdle += 1;
+            }
+            summary.passed += 1;
+            applyMail163AccountMutation(nextAccount, {
+              preserveCurrentSelection: true,
+              syncEmailWhenSelected: true,
+            });
+          } catch (err) {
+            const nextAccount = await patchMail163AccountFromSidepanel(
+              account.id,
+              buildMail163BulkTestFailureUpdates(err)
+            );
+            summary.failed += 1;
+            applyMail163AccountMutation(nextAccount, {
+              preserveCurrentSelection: true,
+              syncEmailWhenSelected: true,
+            });
+          }
+
+          if (dom.btnBulkTestMail163Accounts) {
+            dom.btnBulkTestMail163Accounts.textContent = `批量测试中（${index + 1}/${accounts.length}）`;
+          }
+        }
+
+        const resetText = summary.resetToIdle > 0 ? `，${summary.resetToIdle} 条已回到未执行` : '';
+        helpers.showToast(
+          `批量测试完成：共 ${summary.total} 条，通过 ${summary.passed} 条，失败 ${summary.failed} 条${resetText}`,
+          summary.failed > 0 ? 'warn' : 'success',
+          3200
+        );
+      } finally {
+        actionInFlight = false;
+        if (dom.btnBulkTestMail163Accounts) {
+          dom.btnBulkTestMail163Accounts.textContent = originalButtonText || getBulkTestActionText(getFilteredMail163Accounts().length);
+        }
+        renderMail163Accounts();
+      }
+    }
+
     async function deleteAllMail163Accounts() {
       const accounts = getMail163Accounts();
       if (!accounts.length) {
@@ -901,6 +1032,14 @@
         handleExportMail163Accounts().catch((err) => {
           helpers.showToast(`导出失败：${err.message}`, 'error');
         });
+      });
+
+      dom.btnBulkTestMail163Accounts?.addEventListener('click', async () => {
+        try {
+          await handleBulkTestMail163Accounts();
+        } catch (err) {
+          helpers.showToast(`批量测试失败：${err.message}`, 'error');
+        }
       });
 
       const filterButtons = Array.isArray(dom.mail163FilterButtons) ? dom.mail163FilterButtons : [];

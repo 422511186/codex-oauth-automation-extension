@@ -167,6 +167,7 @@ const inputMail163Search = document.getElementById('input-mail163-search');
 const inputMail163Import = document.getElementById('input-mail163-import');
 const inputMail163ImportFile = document.getElementById('input-mail163-import-file');
 const btnAddMail163Account = document.getElementById('btn-add-mail163-account');
+const btnBulkTestMail163Accounts = document.getElementById('btn-bulk-test-mail163-accounts');
 const btnExportMail163Accounts = document.getElementById('btn-export-mail163-accounts');
 const btnLoadMail163File = document.getElementById('btn-load-mail163-file');
 const btnImportMail163Accounts = document.getElementById('btn-import-mail163-accounts');
@@ -3324,6 +3325,7 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
   },
   dom: {
     btnAddMail163Account,
+    btnBulkTestMail163Accounts,
     btnExportMail163Accounts,
     btnDeleteAllMail163Accounts,
     btnImportMail163Accounts,

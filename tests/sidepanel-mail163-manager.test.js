@@ -131,7 +131,10 @@ test('sidepanel loads mail163 manager before sidepanel bootstrap', () => {
   assert.notEqual(mail163ManagerIndex, -1);
   assert.notEqual(sidepanelIndex, -1);
   assert.match(html, /id="input-mail163-search"/);
+  assert.match(html, /id="btn-bulk-test-mail163-accounts"/);
   assert.match(sidepanelSource, /const inputMail163Search = document\.getElementById\('input-mail163-search'\);/);
+  assert.match(sidepanelSource, /const btnBulkTestMail163Accounts = document\.getElementById\('btn-bulk-test-mail163-accounts'\);/);
+  assert.match(sidepanelSource, /btnBulkTestMail163Accounts,/);
   assert.match(sidepanelSource, /inputMail163Search,/);
   assert.ok(helperIndex < mail163ManagerIndex);
   assert.ok(mail163ManagerIndex < sidepanelIndex);
@@ -148,6 +151,7 @@ test('mail163 manager exposes a factory and renders empty state', () => {
       syncLatestState() {},
     },
     dom: {
+      btnBulkTestMail163Accounts: createButtonStub(),
       btnDeleteAllMail163Accounts: createButtonStub(),
       btnExportMail163Accounts: createButtonStub(),
       btnToggleMail163List: createButtonStub(),
@@ -221,6 +225,7 @@ test('mail163 manager retry action syncs current selection and input email local
     },
     dom: {
       btnAddMail163Account: createButtonStub(),
+      btnBulkTestMail163Accounts: createButtonStub(),
       btnDeleteAllMail163Accounts: createButtonStub(),
       btnExportMail163Accounts: createButtonStub(),
       btnImportMail163Accounts: createButtonStub(),
@@ -384,6 +389,7 @@ test('mail163 manager filters current list and exports filtered backup json data
     },
     dom: {
       btnAddMail163Account: createButtonStub(),
+      btnBulkTestMail163Accounts: createButtonStub(),
       btnDeleteAllMail163Accounts: createButtonStub(),
       btnExportMail163Accounts,
       btnImportMail163Accounts: createButtonStub(),
@@ -539,6 +545,7 @@ test('mail163 manager imports backup json and preserves statuses', async () => {
     },
     dom: {
       btnAddMail163Account: createButtonStub(),
+      btnBulkTestMail163Accounts: createButtonStub(),
       btnDeleteAllMail163Accounts: createButtonStub(),
       btnExportMail163Accounts: createButtonStub(),
       btnImportMail163Accounts,
@@ -683,6 +690,7 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
     },
     dom: {
       btnAddMail163Account: createButtonStub(),
+      btnBulkTestMail163Accounts: createButtonStub(),
       btnDeleteAllMail163Accounts: createButtonStub(),
       btnExportMail163Accounts: createButtonStub(),
       btnImportMail163Accounts: createButtonStub(),
@@ -838,4 +846,210 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
   assert.equal(stateStore.mail163Accounts[2].lastError, '手动标记为失败');
   assert.equal(inputEmail.value, 'success-1@163.com');
   assert.equal(toasts.at(-1)?.level, 'success');
+});
+
+test('mail163 manager bulk tests current filter and moves accounts between failed, stopped, and idle lists', async () => {
+  const api = loadMail163ManagerApi();
+  const toasts = [];
+  const messages = [];
+  const btnBulkTestMail163Accounts = createButtonStub();
+  const filterIdleButton = createFilterButton('idle', '未执行');
+  const filterFailedButton = createFilterButton('failed', '失败');
+  const filterStoppedButton = createFilterButton('stopped', '已停止');
+  const stateStore = {
+    currentMail163AccountId: null,
+    email: '',
+    mail163Accounts: [
+      {
+        id: 'idle-ok',
+        email: 'idle-ok@163.com',
+        authCode: 'idle-ok-auth',
+        status: 'idle',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'idle-bad',
+        email: 'idle-bad@163.com',
+        authCode: 'idle-bad-auth',
+        status: 'idle',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 1,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'failed-ok',
+        email: 'failed-ok@163.com',
+        authCode: 'failed-ok-auth',
+        status: 'failed',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 2,
+        lastError: 'old failure',
+        lastResultAt: 10,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'stopped-ok',
+        email: 'stopped-ok@163.com',
+        authCode: 'stopped-ok-auth',
+        status: 'stopped',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 3,
+        lastError: 'manual stop',
+        lastResultAt: 20,
+        lastUsedAt: 0,
+      },
+    ],
+  };
+
+  const manager = api.createMail163Manager({
+    state: {
+      getLatestState: () => stateStore,
+      syncLatestState: (updates) => {
+        Object.assign(stateStore, updates);
+      },
+    },
+    dom: {
+      btnAddMail163Account: createButtonStub(),
+      btnBulkTestMail163Accounts,
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnImportMail163Accounts: createButtonStub(),
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
+      inputEmail: { value: '' },
+      inputMail163Search: { value: '', addEventListener() {} },
+      inputMail163AuthCode: { value: '' },
+      inputMail163Email: { value: '', focus() {} },
+      inputMail163Import: { value: '' },
+      inputMail163ImportFile: { addEventListener() {} },
+      mail163AccountsList: { innerHTML: '', addEventListener() {} },
+      mail163FilterButtons: [
+        createFilterButton('all', '全部'),
+        filterIdleButton,
+        filterFailedButton,
+        filterStoppedButton,
+      ],
+      mail163FormShell: { hidden: true },
+      mail163ListShell: { classList: createClassListStub() },
+      selectMailProvider: { value: '163' },
+    },
+    helpers: {
+      getMail163Accounts: (currentState = stateStore) => currentState.mail163Accounts,
+      escapeHtml: (value) => String(value || ''),
+      showToast(message, level) {
+        toasts.push({ message, level });
+      },
+      openConfirmModal: async () => true,
+      copyTextToClipboard: async () => {},
+      downloadTextFile() {},
+    },
+    runtime: {
+      sendMessage: async (message) => {
+        messages.push(message);
+        if (message.type === 'TEST_MAIL163_ACCOUNT') {
+          const accountId = message.payload.accountId;
+          if (accountId === 'idle-bad') {
+            throw new Error('helper auth failed');
+          }
+          const sourceAccount = stateStore.mail163Accounts.find((account) => account.id === accountId);
+          return {
+            ok: true,
+            account: {
+              ...sourceAccount,
+              lastError: '',
+            },
+          };
+        }
+
+        if (message.type === 'PATCH_MAIL163_ACCOUNT') {
+          const sourceAccount = stateStore.mail163Accounts.find((account) => account.id === message.payload.accountId);
+          return {
+            ok: true,
+            account: {
+              ...sourceAccount,
+              ...message.payload.updates,
+            },
+          };
+        }
+
+        throw new Error(`unexpected message type: ${message.type}`);
+      },
+    },
+    constants: {
+      copyIcon: '',
+      displayTimeZone: 'Asia/Shanghai',
+      expandedStorageKey: 'multipage-mail163-list-expanded',
+    },
+    mail163Utils: {},
+  });
+
+  manager.bindMail163Events();
+
+  filterIdleButton.click();
+  await btnBulkTestMail163Accounts.listeners.click();
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-ok')?.status, 'idle');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-bad')?.status, 'failed');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-bad')?.lastError, 'helper auth failed');
+
+  filterFailedButton.click();
+  await btnBulkTestMail163Accounts.listeners.click();
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-ok')?.status, 'idle');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-ok')?.lastError, '');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-ok')?.lastResultAt, 0);
+
+  filterStoppedButton.click();
+  await btnBulkTestMail163Accounts.listeners.click();
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'stopped-ok')?.status, 'idle');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'stopped-ok')?.lastError, '');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'stopped-ok')?.lastResultAt, 0);
+  assert.match(toasts.at(-1)?.message || '', /已回到未执行/);
+
+  const patchMessages = messages.filter((message) => message.type === 'PATCH_MAIL163_ACCOUNT');
+  assert.deepStrictEqual(
+    patchMessages.map((message) => ({
+      accountId: message.payload.accountId,
+      status: message.payload.updates.status,
+      lastError: message.payload.updates.lastError,
+    })),
+    [
+      {
+        accountId: 'idle-bad',
+        status: 'failed',
+        lastError: 'helper auth failed',
+      },
+      {
+        accountId: 'idle-bad',
+        status: 'failed',
+        lastError: 'helper auth failed',
+      },
+      {
+        accountId: 'failed-ok',
+        status: 'idle',
+        lastError: '',
+      },
+      {
+        accountId: 'stopped-ok',
+        status: 'idle',
+        lastError: '',
+      },
+    ]
+  );
 });
