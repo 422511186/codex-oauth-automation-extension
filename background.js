@@ -6016,6 +6016,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   patchMail163Account,
   persistAutoRunTimerPlan,
   resetState,
+  runOpenAiCookieCleanup,
   runAutoSequenceFromStep: (...args) => runAutoSequenceFromStep(...args),
   runtime: {
     get: () => ({
@@ -7142,16 +7143,25 @@ async function removeCookieDirectly(cookie) {
   }
 }
 
-async function runPreStep6CookieCleanup() {
-  await addLog(
-    `步骤 6：开始前等待 ${Math.round(STEP6_PRE_LOGIN_COOKIE_CLEAR_DELAY_MS / 1000)} 秒，然后直接删除 ChatGPT / OpenAI cookies...`,
-    'info'
-  );
+async function runOpenAiCookieCleanup(options = {}) {
+  const {
+    logPrefix = '步骤 6',
+    waitMs = 0,
+    successSuffix = '',
+  } = options;
 
-  await sleepWithStop(STEP6_PRE_LOGIN_COOKIE_CLEAR_DELAY_MS);
+  if (waitMs > 0) {
+    await addLog(
+      `${logPrefix}：开始前等待 ${Math.round(waitMs / 1000)} 秒，然后直接删除 ChatGPT / OpenAI cookies...`,
+      'info'
+    );
+    await sleepWithStop(waitMs);
+  } else {
+    await addLog(`${logPrefix}：开始直接删除 ChatGPT / OpenAI cookies...`, 'info');
+  }
 
   if (!chrome.cookies?.getAll || !chrome.cookies?.remove) {
-    await addLog('步骤 6：当前浏览器不支持 cookies API，无法直接删除 cookies。', 'warn');
+    await addLog(`${logPrefix}：当前浏览器不支持 cookies API，无法直接删除 cookies。`, 'warn');
     return;
   }
 
@@ -7172,11 +7182,25 @@ async function runPreStep6CookieCleanup() {
         origins: PRE_LOGIN_COOKIE_CLEAR_ORIGINS,
       });
     } catch (err) {
-      await addLog(`步骤 6：browsingData 补扫 cookies 失败：${getErrorMessage(err)}`, 'warn');
+      await addLog(`${logPrefix}：browsingData 补扫 cookies 失败：${getErrorMessage(err)}`, 'warn');
     }
   }
 
-  await addLog(`步骤 6：已直接删除 ${removedCount} 个 ChatGPT / OpenAI cookies，准备继续获取链接并登录。`, 'ok');
+  const normalizedSuccessSuffix = String(successSuffix || '').trim();
+  await addLog(
+    normalizedSuccessSuffix
+      ? `${logPrefix}：已直接删除 ${removedCount} 个 ChatGPT / OpenAI cookies，${normalizedSuccessSuffix}`
+      : `${logPrefix}：已直接删除 ${removedCount} 个 ChatGPT / OpenAI cookies。`,
+    'ok'
+  );
+}
+
+async function runPreStep6CookieCleanup() {
+  await runOpenAiCookieCleanup({
+    logPrefix: '步骤 6',
+    waitMs: STEP6_PRE_LOGIN_COOKIE_CLEAR_DELAY_MS,
+    successSuffix: '准备继续获取链接并登录。',
+  });
 }
 
 // ============================================================

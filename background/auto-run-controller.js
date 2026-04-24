@@ -33,6 +33,7 @@
       patchMail163Account,
       persistAutoRunTimerPlan,
       resetState,
+      runOpenAiCookieCleanup,
       runAutoSequenceFromStep,
       runtime,
       setState,
@@ -453,6 +454,14 @@
             await setState(keepSettings);
             deps.chrome.runtime.sendMessage({ type: 'AUTO_RUN_RESET' }).catch(() => { });
             await sleepWithStop(500);
+
+            if (forceFreshTabsNextRun && typeof runOpenAiCookieCleanup === 'function') {
+              await runOpenAiCookieCleanup({
+                logPrefix: `自动运行：第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试重开前`,
+                waitMs: 0,
+                successSuffix: '准备开始新一轮流程。',
+              });
+            }
           } else {
             await setState({
               autoRunSessionId: sessionId,
