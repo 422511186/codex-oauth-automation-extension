@@ -301,7 +301,7 @@ test('mail163 manager retry action syncs current selection and input email local
   assert.equal(inputEmail.value, 'retry@163.com');
 });
 
-test('mail163 manager filters current list and exports filtered txt data', async () => {
+test('mail163 manager filters current list and exports filtered backup json data', async () => {
   const api = loadMail163ManagerApi();
   const downloads = [];
   const toasts = [];
@@ -422,16 +422,166 @@ test('mail163 manager filters current list and exports filtered txt data', async
   assert.doesNotMatch(mail163AccountsList.innerHTML, /success-1@163\.com/);
   assert.match(filterFailedButton.textContent, /失败（2）/);
   assert.equal(filterFailedButton.attributes['aria-pressed'], 'true');
-  assert.match(btnExportMail163Accounts.textContent, /导出 TXT（2）/);
+  assert.match(btnExportMail163Accounts.textContent, /导出备份（2）/);
 
   btnExportMail163Accounts.click();
 
   assert.equal(downloads.length, 1);
-  assert.equal(downloads[0].content, 'failed-1@163.com failed-auth');
-  assert.match(downloads[0].fileName, /^mail163-accounts-failed-\d{8}-\d{6}\.txt$/);
-  assert.equal(downloads[0].mimeType, 'text/plain;charset=utf-8');
+  const exportedBundle = JSON.parse(downloads[0].content);
+  assert.equal(exportedBundle.type, 'mail163-account-pool');
+  assert.equal(exportedBundle.filter, 'failed');
+  assert.equal(exportedBundle.count, 1);
+  assert.deepStrictEqual(exportedBundle.accounts, [
+    {
+      id: 'failed-1',
+      email: 'failed-1@163.com',
+      authCode: 'failed-auth',
+      status: 'failed',
+      success: false,
+      used: false,
+      disabled: false,
+      lastUsedAt: 0,
+      lastResultAt: 100,
+      retryCount: 1,
+      lastError: '',
+    },
+  ]);
+  assert.match(downloads[0].fileName, /^mail163-accounts-failed-\d{8}-\d{6}\.json$/);
+  assert.equal(downloads[0].mimeType, 'application/json;charset=utf-8');
   assert.equal(toasts.at(-1)?.level, 'success');
-  assert.match(toasts.at(-1)?.message || '', /已导出 1 条 163 号源，跳过 1 条/);
+  assert.match(toasts.at(-1)?.message || '', /已导出 1 条 163 号源备份，跳过 1 条/);
+});
+
+test('mail163 manager imports backup json and preserves statuses', async () => {
+  const api = loadMail163ManagerApi();
+  const messages = [];
+  const toasts = [];
+  const btnImportMail163Accounts = createButtonStub();
+  const importPayload = JSON.stringify({
+    type: 'mail163-account-pool',
+    schemaVersion: 1,
+    accounts: [
+      {
+        id: 'acc-success',
+        email: 'success@163.com',
+        authCode: 'success-auth',
+        status: 'success',
+        success: true,
+        used: true,
+        disabled: false,
+        lastUsedAt: 1700000000000,
+        lastResultAt: 1700000000000,
+        retryCount: 1,
+        lastError: '',
+      },
+      {
+        id: 'acc-stopped',
+        email: 'stopped@163.com',
+        authCode: 'stopped-auth',
+        status: 'stopped',
+        success: false,
+        used: false,
+        disabled: false,
+        lastUsedAt: 0,
+        lastResultAt: 1700000001000,
+        retryCount: 2,
+        lastError: '手动停止',
+      },
+    ],
+  }, null, 2);
+
+  const stateStore = {
+    currentMail163AccountId: null,
+    email: '',
+    mail163Accounts: [],
+  };
+
+  const manager = api.createMail163Manager({
+    state: {
+      getLatestState: () => stateStore,
+      syncLatestState: (updates) => {
+        Object.assign(stateStore, updates);
+      },
+    },
+    dom: {
+      btnAddMail163Account: createButtonStub(),
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnImportMail163Accounts,
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
+      inputEmail: { value: '' },
+      inputMail163AuthCode: { value: '' },
+      inputMail163Email: { value: '', focus() {} },
+      inputMail163Import: { value: importPayload },
+      inputMail163ImportFile: { addEventListener() {} },
+      mail163AccountsList: { innerHTML: '', addEventListener() {} },
+      mail163FilterButtons: [createFilterButton('all', '全部')],
+      mail163FormShell: { hidden: true },
+      mail163ListShell: { classList: createClassListStub() },
+      selectMailProvider: { value: '163' },
+    },
+    helpers: {
+      getMail163Accounts: (currentState = stateStore) => currentState.mail163Accounts,
+      escapeHtml: (value) => String(value || ''),
+      showToast(message, level) {
+        toasts.push({ message, level });
+      },
+      openConfirmModal: async () => true,
+      copyTextToClipboard: async () => {},
+      downloadTextFile() {},
+    },
+    runtime: {
+      sendMessage: async (message) => {
+        messages.push(message);
+        return { ok: true, account: message.payload };
+      },
+    },
+    constants: {
+      copyIcon: '',
+      displayTimeZone: 'Asia/Shanghai',
+      expandedStorageKey: 'multipage-mail163-list-expanded',
+    },
+    mail163Utils: {},
+  });
+
+  manager.bindMail163Events();
+  await btnImportMail163Accounts.listeners.click();
+
+  assert.equal(messages.length, 2);
+  assert.deepStrictEqual(messages.map((message) => message.type), [
+    'UPSERT_MAIL163_ACCOUNT',
+    'UPSERT_MAIL163_ACCOUNT',
+  ]);
+  assert.deepStrictEqual(messages[0].payload, {
+    id: 'acc-success',
+    email: 'success@163.com',
+    authCode: 'success-auth',
+    status: 'success',
+    success: true,
+    used: true,
+    disabled: false,
+    lastUsedAt: 1700000000000,
+    lastResultAt: 1700000000000,
+    retryCount: 1,
+    lastError: '',
+  });
+  assert.deepStrictEqual(messages[1].payload, {
+    id: 'acc-stopped',
+    email: 'stopped@163.com',
+    authCode: 'stopped-auth',
+    status: 'stopped',
+    success: false,
+    used: false,
+    disabled: false,
+    lastUsedAt: 0,
+    lastResultAt: 1700000001000,
+    retryCount: 2,
+    lastError: '手动停止',
+  });
+  assert.equal(toasts.at(-1)?.level, 'success');
+  assert.match(toasts.at(-1)?.message || '', /已导入 2 条 163 号源备份，状态已恢复/);
 });
 
 test('mail163 manager can quickly toggle idle, failed, and success statuses', async () => {

@@ -472,7 +472,7 @@
         </div>
         <div class="section-mini-actions">
           <button id="btn-toggle-mail163-form" class="btn btn-outline btn-xs" type="button" aria-expanded="false">添加账号</button>
-          <button id="btn-export-mail163-accounts" class="btn btn-ghost btn-xs" type="button">导出 TXT</button>
+          <button id="btn-export-mail163-accounts" class="btn btn-ghost btn-xs" type="button">导出备份</button>
           <button id="btn-delete-all-mail163-accounts" class="btn btn-ghost btn-xs" type="button">全部删除</button>
           <button id="btn-toggle-mail163-list" class="btn btn-ghost btn-xs" type="button" aria-expanded="false">展开列表</button>
         </div>
@@ -505,16 +505,16 @@
           <span class="data-label"></span>
           <div class="data-inline account-pool-actions-inline">
             <button id="btn-add-mail163-account" class="btn btn-primary btn-sm" type="button">添加账号</button>
-            <button id="btn-load-mail163-file" class="btn btn-outline btn-sm account-pool-import-action" type="button">选择 TXT</button>
+            <button id="btn-load-mail163-file" class="btn btn-outline btn-sm account-pool-import-action" type="button">选择 JSON/TXT</button>
             <button id="btn-import-mail163-accounts" class="btn btn-outline btn-sm account-pool-import-action" type="button">导入号源</button>
           </div>
         </div>
         <div class="data-row hotmail-import-row">
-          <span class="data-label">TXT 内容</span>
+          <span class="data-label">导入内容</span>
           <div class="hotmail-import-box">
             <textarea id="input-mail163-import" class="data-textarea mono"
-              placeholder="每行：邮箱 空格 授权码&#10;name1@163.com xxxxxxxx&#10;name2@163.com yyyyyyyy"></textarea>
-            <input id="input-mail163-import-file" type="file" accept=".txt,text/plain" hidden />
+              placeholder="支持两种格式：&#10;1. 备份 JSON（保留成功/失败/中止状态）&#10;2. 每行：邮箱 空格 授权码&#10;name1@163.com xxxxxxxx&#10;name2@163.com yyyyyyyy"></textarea>
+            <input id="input-mail163-import-file" type="file" accept=".json,application/json,.txt,text/plain" hidden />
           </div>
         </div>
       </div>

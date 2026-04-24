@@ -8,6 +8,8 @@
     failed: '失败',
     stopped: '已停止',
   };
+  const MAIL163_BACKUP_SCHEMA_VERSION = 1;
+  const MAIL163_BACKUP_TYPE = 'mail163-account-pool';
 
   function createMail163Manager(context = {}) {
     const {
@@ -94,7 +96,7 @@
 
     function getExportActionText(count) {
       const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
-      return normalizedCount > 0 ? `导出 TXT（${normalizedCount}）` : '导出 TXT';
+      return normalizedCount > 0 ? `导出备份（${normalizedCount}）` : '导出备份';
     }
 
     function updateMail163FilterButtons(currentState = state.getLatestState()) {
@@ -310,6 +312,111 @@
       return getFilteredMail163Accounts(currentState).filter((account) => account?.email && account?.authCode);
     }
 
+    function normalizeImportTimestamp(value) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+    }
+
+    function normalizeImportRetryCount(value) {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
+    }
+
+    function buildMail163BackupExportAccount(account = {}) {
+      const status = getAccountStatus(account);
+      const success = account.success !== undefined ? Boolean(account.success) : status === 'success';
+
+      return {
+        id: String(account.id || '').trim(),
+        email: String(account.email || '').trim().toLowerCase(),
+        authCode: String(account.authCode ?? account.password ?? '').trim(),
+        status: success ? 'success' : status,
+        success,
+        used: account.used !== undefined ? Boolean(account.used) : success,
+        disabled: Boolean(account.disabled),
+        lastUsedAt: normalizeImportTimestamp(account.lastUsedAt),
+        lastResultAt: normalizeImportTimestamp(account.lastResultAt),
+        retryCount: normalizeImportRetryCount(account.retryCount),
+        lastError: String(account.lastError || '').trim(),
+      };
+    }
+
+    function buildMail163BackupExportBundle(currentState = state.getLatestState()) {
+      const exportableAccounts = getExportableMail163Accounts(currentState)
+        .map((account) => buildMail163BackupExportAccount(account));
+      return {
+        schemaVersion: MAIL163_BACKUP_SCHEMA_VERSION,
+        type: MAIL163_BACKUP_TYPE,
+        exportedAt: new Date().toISOString(),
+        filter: activeFilter,
+        count: exportableAccounts.length,
+        accounts: exportableAccounts,
+      };
+    }
+
+    function normalizeImportedMail163Account(account = {}) {
+      const status = getAccountStatus(account);
+      const success = account.success !== undefined ? Boolean(account.success) : status === 'success';
+
+      return {
+        ...(account?.id ? { id: String(account.id).trim() } : {}),
+        email: String(account.email || '').trim().toLowerCase(),
+        authCode: String(account.authCode ?? account.password ?? '').trim(),
+        status: success ? 'success' : status,
+        success,
+        used: account.used !== undefined ? Boolean(account.used) : success,
+        disabled: Boolean(account.disabled),
+        lastUsedAt: normalizeImportTimestamp(account.lastUsedAt),
+        lastResultAt: normalizeImportTimestamp(account.lastResultAt),
+        retryCount: normalizeImportRetryCount(account.retryCount),
+        lastError: String(account.lastError || '').trim(),
+      };
+    }
+
+    function parseMail163ImportJson(rawText = '') {
+      try {
+        const parsed = JSON.parse(String(rawText || ''));
+        const accounts = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed?.accounts)
+            ? parsed.accounts
+            : Array.isArray(parsed?.mail163Accounts)
+              ? parsed.mail163Accounts
+              : Array.isArray(parsed?.settings?.mail163Accounts)
+                ? parsed.settings.mail163Accounts
+                : null;
+
+        if (!accounts) {
+          return { source: 'json', accounts: [] };
+        }
+
+        return {
+          source: 'json',
+          accounts: accounts
+            .map((account) => normalizeImportedMail163Account(account))
+            .filter((account) => account.email && account.authCode),
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    function parseMail163ImportContent(rawText = '') {
+      const jsonResult = parseMail163ImportJson(rawText);
+      if (jsonResult) {
+        return jsonResult;
+      }
+
+      if (typeof mail163Utils.parseMail163ImportText !== 'function') {
+        return { source: 'txt', accounts: [] };
+      }
+
+      return {
+        source: 'txt',
+        accounts: mail163Utils.parseMail163ImportText(rawText),
+      };
+    }
+
     function renderMail163Accounts() {
       if (!dom.mail163AccountsList) return;
 
@@ -433,17 +540,19 @@
 
       const rawText = String(dom.inputMail163Import?.value || '').trim();
       if (!rawText) {
-        helpers.showToast('请先选择 TXT 文件或粘贴导入内容。', 'warn');
-        return;
-      }
-      if (typeof mail163Utils.parseMail163ImportText !== 'function') {
-        helpers.showToast('163 导入解析器未加载，请刷新扩展后重试。', 'error');
+        helpers.showToast('请先选择 JSON/TXT 文件或粘贴导入内容。', 'warn');
         return;
       }
 
-      const parsedAccounts = mail163Utils.parseMail163ImportText(rawText);
+      const importResult = parseMail163ImportContent(rawText);
+      const parsedAccounts = importResult.accounts;
       if (!parsedAccounts.length) {
-        helpers.showToast('没有解析到有效号源，请检查是否为“邮箱 空格 授权码”格式。', 'error');
+        helpers.showToast(
+          importResult.source === 'json'
+            ? '没有解析到有效的 163 备份数据，请检查 JSON 内容。'
+            : '没有解析到有效号源，请检查是否为“邮箱 空格 授权码”格式。',
+          'error'
+        );
         return;
       }
 
@@ -467,7 +576,13 @@
         if (dom.inputMail163Import) {
           dom.inputMail163Import.value = '';
         }
-        helpers.showToast(`已导入 ${parsedAccounts.length} 条 163 号源`, 'success', 2200);
+        helpers.showToast(
+          importResult.source === 'json'
+            ? `已导入 ${parsedAccounts.length} 条 163 号源备份，状态已恢复`
+            : `已导入 ${parsedAccounts.length} 条 163 号源`,
+          'success',
+          2200
+        );
       } catch (err) {
         helpers.showToast(`导入失败：${err.message}`, 'error');
       } finally {
@@ -492,19 +607,18 @@
         return;
       }
 
-      const fileContent = exportableAccounts
-        .map((account) => `${account.email} ${account.authCode}`)
-        .join('\n');
-      const fileName = `mail163-accounts-${activeFilter}-${formatExportTimestamp()}.txt`;
-      helpers.downloadTextFile(fileContent, fileName, 'text/plain;charset=utf-8');
+      const backupBundle = buildMail163BackupExportBundle(latestState);
+      const fileContent = JSON.stringify(backupBundle, null, 2);
+      const fileName = `mail163-accounts-${activeFilter}-${formatExportTimestamp()}.json`;
+      helpers.downloadTextFile(fileContent, fileName, 'application/json;charset=utf-8');
 
       const filteredCount = getFilteredMail163Accounts(latestState).length;
       const skippedCount = Math.max(0, filteredCount - exportableAccounts.length);
       if (skippedCount > 0) {
-        helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源，跳过 ${skippedCount} 条缺少邮箱或授权码的记录`, 'success', 2200);
+        helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源备份，跳过 ${skippedCount} 条缺少邮箱或授权码的记录`, 'success', 2200);
         return;
       }
-      helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源`, 'success', 2200);
+      helpers.showToast(`已导出 ${exportableAccounts.length} 条 163 号源备份`, 'success', 2200);
     }
 
     async function deleteAllMail163Accounts() {

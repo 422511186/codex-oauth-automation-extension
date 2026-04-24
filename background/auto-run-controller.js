@@ -568,21 +568,6 @@
               await appendRoundRecordIfNeeded('failed', reason);
               cancelPendingCommands('当前轮因 163 helper 登录失败已终止。');
               await broadcastStopToContentScripts();
-              if (!autoRunSkipFailures) {
-                await addLog(
-                  `第 ${targetRun}/${totalRuns} 轮触发 163 helper 登录失败，自动重试未开启，当前自动运行将停止。`,
-                  'warn'
-                );
-                stoppedEarly = true;
-                await broadcastAutoRunStatus('stopped', {
-                  currentRun: targetRun,
-                  totalRuns,
-                  attemptRun,
-                  sessionId: 0,
-                });
-                break;
-              }
-
               await addLog(`第 ${targetRun}/${totalRuns} 轮触发 163 helper 登录失败，本轮将直接失败并跳过剩余重试。`, 'warn');
               await addLog(
                 targetRun < totalRuns
