@@ -4425,6 +4425,14 @@ function isMail163LoginAuthFailure(error) {
   return /MAIL163_LOGIN_AUTH_FAILED::|LOGIN Login error or password error/i.test(message);
 }
 
+function isRetryableAutoRunTabGoneError(error) {
+  if (typeof loggingStatus !== 'undefined' && loggingStatus?.isRetryableAutoRunTabGoneError) {
+    return loggingStatus.isRetryableAutoRunTabGoneError(error);
+  }
+  const message = getErrorMessage(error);
+  return /No tab with id:\s*\d+/i.test(message);
+}
+
 function isStep9RecoverableAuthError(error) {
   const message = String(typeof error === 'string' ? error : error?.message || '');
   return /STEP9_OAUTH_RETRY::/i.test(message)
@@ -6008,6 +6016,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isAddPhoneAuthFailure,
   isMail163Provider,
   isMail163LoginAuthFailure,
+  isRetryableAutoRunTabGoneError,
   isRestartCurrentAttemptError,
   isSignupUserAlreadyExistsFailure,
   isStopError,

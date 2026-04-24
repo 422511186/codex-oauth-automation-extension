@@ -101,6 +101,11 @@
       return /MAIL163_LOGIN_AUTH_FAILED::|LOGIN Login error or password error/i.test(message);
     }
 
+    function isRetryableAutoRunTabGoneError(error) {
+      const message = getErrorMessage(error);
+      return /No tab with id:\s*\d+/i.test(message);
+    }
+
     function isStep9RecoverableAuthError(error) {
       const message = String(typeof error === 'string' ? error : error?.message || '');
       return /STEP9_OAUTH_RETRY::/i.test(message)
@@ -172,6 +177,7 @@
       hasSavedProgress,
       isLegacyStep9RecoverableAuthError,
       isMail163LoginAuthFailure,
+      isRetryableAutoRunTabGoneError,
       isRestartCurrentAttemptError,
       isSignupUserAlreadyExistsFailure,
       isStep9RecoverableAuthError,

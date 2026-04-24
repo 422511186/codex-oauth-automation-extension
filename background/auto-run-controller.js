@@ -25,6 +25,7 @@
       isAddPhoneAuthFailure,
       isMail163LoginAuthFailure,
       isMail163Provider,
+      isRetryableAutoRunTabGoneError,
       isRestartCurrentAttemptError,
       isSignupUserAlreadyExistsFailure,
       isStopError,
@@ -388,8 +389,9 @@
         const resumingCurrentRound = continueCurrentOnFirstAttempt && targetRun === resumeCurrentRun;
         let attemptRun = resumingCurrentRound ? resumeAttemptRun : 1;
         let reuseExistingProgress = resumingCurrentRound;
-        const maxAttemptsForRound = autoRunSkipFailures
-          ? AUTO_RUN_MAX_RETRIES_PER_ROUND + 1
+        const retryLimitForRound = AUTO_RUN_MAX_RETRIES_PER_ROUND + 1;
+        let maxAttemptsForRound = autoRunSkipFailures
+          ? retryLimitForRound
           : Math.max(1, attemptRun);
 
         while (attemptRun <= maxAttemptsForRound) {
@@ -532,7 +534,12 @@
 
             const reason = getErrorMessage(err);
             roundSummary.failureReasons.push(reason);
-            await markCurrentMail163AttemptFailed(reason);
+            const retryCurrentAttemptForTabGoneError = typeof isRetryableAutoRunTabGoneError === 'function'
+              && isRetryableAutoRunTabGoneError(err)
+              && attemptRun < retryLimitForRound;
+            if (!retryCurrentAttemptForTabGoneError) {
+              await markCurrentMail163AttemptFailed(reason);
+            }
             const blockedByAddPhone = typeof isAddPhoneAuthFailure === 'function' && isAddPhoneAuthFailure(err);
             const blockedByMail163LoginAuthFailure = typeof isMail163LoginAuthFailure === 'function'
               && isMail163LoginAuthFailure(err);
@@ -541,8 +548,10 @@
             const canRetry = !blockedByAddPhone
               && !blockedByMail163LoginAuthFailure
               && !blockedBySignupUserAlreadyExists
-              && autoRunSkipFailures
-              && attemptRun < maxAttemptsForRound;
+              && (
+                retryCurrentAttemptForTabGoneError
+                || (autoRunSkipFailures && attemptRun < maxAttemptsForRound)
+              );
 
             await setState({
               autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
@@ -625,7 +634,10 @@
 
             if (canRetry) {
               const retryIndex = attemptRun;
-              if (isRestartCurrentAttemptError(err)) {
+              if (retryCurrentAttemptForTabGoneError) {
+                maxAttemptsForRound = retryLimitForRound;
+                await addLog(`第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试遇到失效标签页，准备沿用当前账号重试：${reason}`, 'warn');
+              } else if (isRestartCurrentAttemptError(err)) {
                 await addLog(`第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试需要整轮重开：${reason}`, 'warn');
               } else {
                 await addLog(`第 ${targetRun}/${totalRuns} 轮第 ${attemptRun} 次尝试失败：${reason}`, 'error');

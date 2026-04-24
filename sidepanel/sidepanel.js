@@ -163,6 +163,7 @@ const mail163Section = document.getElementById('mail163-section');
 const inputMail163HelperBaseUrl = document.getElementById('input-mail163-helper-base-url');
 const inputMail163Email = document.getElementById('input-mail163-email');
 const inputMail163AuthCode = document.getElementById('input-mail163-auth-code');
+const inputMail163Search = document.getElementById('input-mail163-search');
 const inputMail163Import = document.getElementById('input-mail163-import');
 const inputMail163ImportFile = document.getElementById('input-mail163-import-file');
 const btnAddMail163Account = document.getElementById('btn-add-mail163-account');
@@ -3332,6 +3333,7 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
     inputEmail,
     inputMail163AuthCode,
     inputMail163Email,
+    inputMail163Search,
     inputMail163Import,
     inputMail163ImportFile,
     mail163AccountsList,

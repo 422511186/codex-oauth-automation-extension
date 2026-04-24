@@ -122,6 +122,7 @@ function loadMail163ManagerApi() {
 
 test('sidepanel loads mail163 manager before sidepanel bootstrap', () => {
   const html = fs.readFileSync('sidepanel/sidepanel.html', 'utf8');
+  const sidepanelSource = fs.readFileSync('sidepanel/sidepanel.js', 'utf8');
   const helperIndex = html.indexOf('<script src="account-pool-ui.js"></script>');
   const mail163ManagerIndex = html.indexOf('<script src="mail-163-manager.js"></script>');
   const sidepanelIndex = html.indexOf('<script src="sidepanel.js"></script>');
@@ -130,6 +131,8 @@ test('sidepanel loads mail163 manager before sidepanel bootstrap', () => {
   assert.notEqual(mail163ManagerIndex, -1);
   assert.notEqual(sidepanelIndex, -1);
   assert.match(html, /id="input-mail163-search"/);
+  assert.match(sidepanelSource, /const inputMail163Search = document\.getElementById\('input-mail163-search'\);/);
+  assert.match(sidepanelSource, /inputMail163Search,/);
   assert.ok(helperIndex < mail163ManagerIndex);
   assert.ok(mail163ManagerIndex < sidepanelIndex);
 });
