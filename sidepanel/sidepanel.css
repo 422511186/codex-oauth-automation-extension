@@ -1160,6 +1160,10 @@ header {
   flex: 0 0 auto;
 }
 
+.mail163-search {
+  flex: 1;
+}
+
 .hotmail-list-shell {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);

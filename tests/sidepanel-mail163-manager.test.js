@@ -129,6 +129,7 @@ test('sidepanel loads mail163 manager before sidepanel bootstrap', () => {
   assert.notEqual(helperIndex, -1);
   assert.notEqual(mail163ManagerIndex, -1);
   assert.notEqual(sidepanelIndex, -1);
+  assert.match(html, /id="input-mail163-search"/);
   assert.ok(helperIndex < mail163ManagerIndex);
   assert.ok(mail163ManagerIndex < sidepanelIndex);
 });
@@ -147,6 +148,7 @@ test('mail163 manager exposes a factory and renders empty state', () => {
       btnDeleteAllMail163Accounts: createButtonStub(),
       btnExportMail163Accounts: createButtonStub(),
       btnToggleMail163List: createButtonStub(),
+      inputMail163Search: { value: '', addEventListener() {} },
       mail163AccountsList,
       mail163ListShell: { classList: createClassListStub() },
       selectMailProvider: { value: '163' },
@@ -223,6 +225,7 @@ test('mail163 manager retry action syncs current selection and input email local
       btnToggleMail163Form: createButtonStub(),
       btnToggleMail163List: createButtonStub(),
       inputEmail,
+      inputMail163Search: { value: '', addEventListener() {} },
       inputMail163AuthCode: { value: '' },
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: '' },
@@ -306,6 +309,13 @@ test('mail163 manager filters current list and exports filtered backup json data
   const downloads = [];
   const toasts = [];
   const btnExportMail163Accounts = createButtonStub();
+  const inputMail163Search = {
+    value: '',
+    listeners: {},
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+  };
   const filterAllButton = createFilterButton('all', '全部');
   const filterFailedButton = createFilterButton('failed', '失败');
   const filterSuccessButton = createFilterButton('success', '成功');
@@ -334,6 +344,7 @@ test('mail163 manager filters current list and exports filtered backup json data
         status: 'failed',
         success: false,
         retryCount: 1,
+        lastError: 'helper 登录失败',
         lastResultAt: 100,
         lastUsedAt: 0,
       },
@@ -344,6 +355,7 @@ test('mail163 manager filters current list and exports filtered backup json data
         status: 'failed',
         success: false,
         retryCount: 2,
+        lastError: 'helper 超时',
         lastResultAt: 200,
         lastUsedAt: 0,
       },
@@ -376,6 +388,7 @@ test('mail163 manager filters current list and exports filtered backup json data
       btnToggleMail163Form: createButtonStub(),
       btnToggleMail163List: createButtonStub(),
       inputEmail: { value: 'failed-1@163.com' },
+      inputMail163Search,
       inputMail163AuthCode: { value: '' },
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: '' },
@@ -443,13 +456,31 @@ test('mail163 manager filters current list and exports filtered backup json data
       lastUsedAt: 0,
       lastResultAt: 100,
       retryCount: 1,
-      lastError: '',
+      lastError: 'helper 登录失败',
     },
   ]);
   assert.match(downloads[0].fileName, /^mail163-accounts-failed-\d{8}-\d{6}\.json$/);
   assert.equal(downloads[0].mimeType, 'application/json;charset=utf-8');
   assert.equal(toasts.at(-1)?.level, 'success');
   assert.match(toasts.at(-1)?.message || '', /已导出 1 条 163 号源备份，跳过 1 条/);
+
+  inputMail163Search.value = 'failed-1';
+  inputMail163Search.listeners.input({ target: inputMail163Search });
+  assert.match(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+
+  inputMail163Search.value = '超时';
+  inputMail163Search.listeners.input({ target: inputMail163Search });
+  assert.match(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+
+  inputMail163Search.value = '';
+  inputMail163Search.listeners.input({ target: inputMail163Search });
+  const failed2Index = mail163AccountsList.innerHTML.indexOf('failed-2@163.com');
+  const failed1Index = mail163AccountsList.innerHTML.indexOf('failed-1@163.com');
+  assert.notEqual(failed2Index, -1);
+  assert.notEqual(failed1Index, -1);
+  assert.ok(failed2Index < failed1Index, 'failed accounts should be sorted by latest result time descending');
 });
 
 test('mail163 manager imports backup json and preserves statuses', async () => {
@@ -512,6 +543,7 @@ test('mail163 manager imports backup json and preserves statuses', async () => {
       btnToggleMail163Form: createButtonStub(),
       btnToggleMail163List: createButtonStub(),
       inputEmail: { value: '' },
+      inputMail163Search: { value: '', addEventListener() {} },
       inputMail163AuthCode: { value: '' },
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: importPayload },
@@ -655,6 +687,7 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
       btnToggleMail163Form: createButtonStub(),
       btnToggleMail163List: createButtonStub(),
       inputEmail,
+      inputMail163Search: { value: '', addEventListener() {} },
       inputMail163AuthCode: { value: '' },
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: '' },

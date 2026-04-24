@@ -29,6 +29,7 @@
     let actionInFlight = false;
     let listExpanded = false;
     let activeFilter = 'all';
+    let searchTerm = '';
 
     function getMail163Accounts(currentState = state.getLatestState()) {
       return helpers.getMail163Accounts(currentState);
@@ -50,12 +51,60 @@
         : 'idle';
     }
 
+    function normalizeMail163SearchText(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function getAccountLatestActivityAt(account) {
+      const lastResultAt = Number(account?.lastResultAt) || 0;
+      const lastUsedAt = Number(account?.lastUsedAt) || 0;
+      return Math.max(lastResultAt, lastUsedAt, 0);
+    }
+
+    function sortMail163Accounts(accounts = []) {
+      return (Array.isArray(accounts) ? accounts.slice() : []).sort((left, right) => {
+        const rightActivityAt = getAccountLatestActivityAt(right);
+        const leftActivityAt = getAccountLatestActivityAt(left);
+        if (rightActivityAt !== leftActivityAt) {
+          return rightActivityAt - leftActivityAt;
+        }
+
+        const rightResultAt = Number(right?.lastResultAt) || 0;
+        const leftResultAt = Number(left?.lastResultAt) || 0;
+        if (rightResultAt !== leftResultAt) {
+          return rightResultAt - leftResultAt;
+        }
+
+        const rightRetryCount = Number(right?.retryCount) || 0;
+        const leftRetryCount = Number(left?.retryCount) || 0;
+        if (rightRetryCount !== leftRetryCount) {
+          return rightRetryCount - leftRetryCount;
+        }
+
+        return String(left?.email || '').localeCompare(String(right?.email || ''));
+      });
+    }
+
     function getFilteredMail163Accounts(currentState = state.getLatestState()) {
-      const accounts = getMail163Accounts(currentState);
-      if (activeFilter === 'all') {
-        return accounts;
-      }
-      return accounts.filter((account) => getAccountStatus(account) === activeFilter);
+      const normalizedSearchTerm = normalizeMail163SearchText(searchTerm);
+      const accounts = sortMail163Accounts(getMail163Accounts(currentState));
+      return accounts.filter((account) => {
+        const matchesFilter = activeFilter === 'all' || getAccountStatus(account) === activeFilter;
+        if (!matchesFilter) {
+          return false;
+        }
+        if (!normalizedSearchTerm) {
+          return true;
+        }
+
+        const haystack = [
+          account.email,
+          account.lastError,
+          getStatusLabel(account),
+          account.success ? '已成功 success' : '未成功 pending',
+        ].join(' ').toLowerCase();
+        return haystack.includes(normalizedSearchTerm);
+      });
     }
 
     function getMail163FilterCounts(currentState = state.getLatestState()) {
@@ -873,6 +922,10 @@
         handleMail163FileChange().catch((err) => {
           helpers.showToast(`读取文件失败：${err.message}`, 'error');
         });
+      });
+      dom.inputMail163Search?.addEventListener('input', (event) => {
+        searchTerm = event.target.value || '';
+        renderMail163Accounts();
       });
       dom.btnAddMail163Account?.addEventListener('click', handleAddMail163Account);
       dom.btnImportMail163Accounts?.addEventListener('click', handleImportMail163Accounts);
