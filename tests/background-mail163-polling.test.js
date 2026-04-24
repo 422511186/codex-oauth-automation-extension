@@ -52,7 +52,10 @@ function extractLastFunction(name) {
 }
 
 test('pollMail163VerificationCode polls helper in short single-attempt requests', async () => {
-  const bundle = extractLastFunction('pollMail163VerificationCode');
+  const bundle = [
+    extractLastFunction('isMail163LoginAuthFailure'),
+    extractLastFunction('pollMail163VerificationCode'),
+  ].join('\n');
   const calls = {
     ensureOptions: [],
     helperRequests: [],
@@ -83,6 +86,9 @@ async function sleepWithStop(ms) {
 }
 async function addLog(message, level = 'info') {
   calls.logs.push({ message, level });
+}
+function getErrorMessage(error) {
+  return error?.message || String(error || '');
 }
 function throwIfStopped() {}
 ${bundle}
@@ -137,4 +143,53 @@ return { pollMail163VerificationCode };
   assert.equal(result.mailId, '40');
   assert.equal(result.usedTimeFallback, true);
   assert.equal(calls.logs.some(({ message }) => /163 helper/.test(message)), true);
+});
+
+test('pollMail163VerificationCode stops retrying immediately when helper reports login failure', async () => {
+  const bundle = [
+    extractLastFunction('isMail163LoginAuthFailure'),
+    extractLastFunction('pollMail163VerificationCode'),
+  ].join('\n');
+  const calls = {
+    helperRequests: [],
+    sleeps: [],
+    logs: [],
+  };
+
+  const api = new Function('calls', `
+async function ensureMail163AccountForFlow() {
+  return { id: 'acc-1', email: 'pool@163.com', authCode: 'bad-auth-code' };
+}
+async function requestMail163Helper(path, payload, options) {
+  calls.helperRequests.push({ path, payload, options });
+  throw new Error("b'LOGIN Login error or password error'；helper 日志：D:/mail163-helper.log");
+}
+async function sleepWithStop(ms) {
+  calls.sleeps.push(ms);
+}
+async function addLog(message, level = 'info') {
+  calls.logs.push({ message, level });
+}
+function getErrorMessage(error) {
+  return error?.message || String(error || '');
+}
+function throwIfStopped() {}
+${bundle}
+return { pollMail163VerificationCode };
+`)(calls);
+
+  await assert.rejects(
+    () => api.pollMail163VerificationCode(4, {
+      currentMail163AccountId: 'acc-1',
+      autoRunLockedMail163AccountId: 'acc-1',
+    }, {
+      maxAttempts: 5,
+      intervalMs: 3000,
+    }),
+    /LOGIN Login error or password error/
+  );
+
+  assert.equal(calls.helperRequests.length, 1, 'login failure should stop further helper polling attempts');
+  assert.deepStrictEqual(calls.sleeps, []);
+  assert.equal(calls.logs.some(({ message }) => /不再继续轮询/.test(message)), true);
 });

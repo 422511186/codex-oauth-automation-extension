@@ -504,6 +504,13 @@ header {
   gap: 12px;
 }
 
+.update-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .update-card-copy {
   min-width: 0;
   display: flex;
@@ -528,6 +535,8 @@ header {
   flex-direction: column;
   gap: 10px;
 }
+
+.update-release-list[hidden] { display: none; }
 
 .update-release-item {
   padding-top: 10px;

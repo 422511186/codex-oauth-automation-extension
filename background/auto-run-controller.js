@@ -23,6 +23,7 @@
       getState,
       hasSavedProgress,
       isAddPhoneAuthFailure,
+      isMail163LoginAuthFailure,
       isMail163Provider,
       isRestartCurrentAttemptError,
       isSignupUserAlreadyExistsFailure,
@@ -524,9 +525,15 @@
             roundSummary.failureReasons.push(reason);
             await markCurrentMail163AttemptFailed(reason);
             const blockedByAddPhone = typeof isAddPhoneAuthFailure === 'function' && isAddPhoneAuthFailure(err);
+            const blockedByMail163LoginAuthFailure = typeof isMail163LoginAuthFailure === 'function'
+              && isMail163LoginAuthFailure(err);
             const blockedBySignupUserAlreadyExists = typeof isSignupUserAlreadyExistsFailure === 'function'
               && isSignupUserAlreadyExistsFailure(err);
-            const canRetry = !blockedByAddPhone && !blockedBySignupUserAlreadyExists && autoRunSkipFailures && attemptRun < maxAttemptsForRound;
+            const canRetry = !blockedByAddPhone
+              && !blockedByMail163LoginAuthFailure
+              && !blockedBySignupUserAlreadyExists
+              && autoRunSkipFailures
+              && attemptRun < maxAttemptsForRound;
 
             await setState({
               autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
@@ -541,9 +548,29 @@
               await appendRoundRecordIfNeeded('failed', reason);
               cancelPendingCommands('当前轮因认证流程进入 add-phone 已终止。');
               await broadcastStopToContentScripts();
+              await addLog(`第 ${targetRun}/${totalRuns} 轮触发 add-phone/手机号页，本轮将直接失败并跳过剩余重试。`, 'warn');
+              await addLog(
+                targetRun < totalRuns
+                  ? `第 ${targetRun}/${totalRuns} 轮因 add-phone/手机号页提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因 add-phone/手机号页提前结束，已无后续轮次，本次自动运行结束。`,
+                'warn'
+              );
+              forceFreshTabsNextRun = true;
+              break;
+            }
+
+            if (blockedByMail163LoginAuthFailure) {
+              roundSummary.status = 'failed';
+              roundSummary.finalFailureReason = reason;
+              await setState({
+                autoRunRoundSummaries: serializeAutoRunRoundSummaries(totalRuns, roundSummaries),
+              });
+              await appendRoundRecordIfNeeded('failed', reason);
+              cancelPendingCommands('当前轮因 163 helper 登录失败已终止。');
+              await broadcastStopToContentScripts();
               if (!autoRunSkipFailures) {
                 await addLog(
-                  `第 ${targetRun}/${totalRuns} 轮触发 add-phone/手机号页，自动重试未开启，当前自动运行将停止。`,
+                  `第 ${targetRun}/${totalRuns} 轮触发 163 helper 登录失败，自动重试未开启，当前自动运行将停止。`,
                   'warn'
                 );
                 stoppedEarly = true;
@@ -556,11 +583,11 @@
                 break;
               }
 
-              await addLog(`第 ${targetRun}/${totalRuns} 轮触发 add-phone/手机号页，本轮将直接失败并跳过剩余重试。`, 'warn');
+              await addLog(`第 ${targetRun}/${totalRuns} 轮触发 163 helper 登录失败，本轮将直接失败并跳过剩余重试。`, 'warn');
               await addLog(
                 targetRun < totalRuns
-                  ? `第 ${targetRun}/${totalRuns} 轮因 add-phone/手机号页提前结束，自动流程将继续下一轮。`
-                  : `第 ${targetRun}/${totalRuns} 轮因 add-phone/手机号页提前结束，已无后续轮次，本次自动运行结束。`,
+                  ? `第 ${targetRun}/${totalRuns} 轮因 163 helper 登录失败提前结束，自动流程将继续下一轮。`
+                  : `第 ${targetRun}/${totalRuns} 轮因 163 helper 登录失败提前结束，已无后续轮次，本次自动运行结束。`,
                 'warn'
               );
               forceFreshTabsNextRun = true;

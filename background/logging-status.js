@@ -96,6 +96,11 @@
       return /SIGNUP_USER_ALREADY_EXISTS::|user_already_exists/i.test(message);
     }
 
+    function isMail163LoginAuthFailure(error) {
+      const message = getErrorMessage(error);
+      return /MAIL163_LOGIN_AUTH_FAILED::|LOGIN Login error or password error/i.test(message);
+    }
+
     function isStep9RecoverableAuthError(error) {
       const message = String(typeof error === 'string' ? error : error?.message || '');
       return /STEP9_OAUTH_RETRY::/i.test(message)
@@ -166,6 +171,7 @@
       getSourceLabel,
       hasSavedProgress,
       isLegacyStep9RecoverableAuthError,
+      isMail163LoginAuthFailure,
       isRestartCurrentAttemptError,
       isSignupUserAlreadyExistsFailure,
       isStep9RecoverableAuthError,

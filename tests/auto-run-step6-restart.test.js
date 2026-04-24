@@ -56,6 +56,7 @@ const bundle = [
   extractFunction('isAddPhoneAuthFailure'),
   extractFunction('isAddPhoneAuthUrl'),
   extractFunction('isAddPhoneAuthState'),
+  extractFunction('isMail163LoginAuthFailure'),
   extractFunction('getPostStep6AutoRestartDecision'),
   extractFunction('runAutoSequenceFromStep'),
 ].join('\n');

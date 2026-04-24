@@ -31,6 +31,7 @@ const btnReleaseLog = document.getElementById('btn-release-log');
 const updateCardVersion = document.getElementById('update-card-version');
 const updateCardSummary = document.getElementById('update-card-summary');
 const updateReleaseList = document.getElementById('update-release-list');
+const btnToggleUpdateDetails = document.getElementById('btn-toggle-update-details');
 const btnOpenRelease = document.getElementById('btn-open-release');
 const settingsCard = document.getElementById('settings-card');
 const contributionModePanel = document.getElementById('contribution-mode-panel');
@@ -537,6 +538,7 @@ let scheduledCountdownTimer = null;
 let configMenuOpen = false;
 let configActionInFlight = false;
 let currentReleaseSnapshot = null;
+let isUpdateReleaseListExpanded = false;
 let currentContributionContentSnapshot = null;
 let contributionContentSnapshotRequestInFlight = null;
 
@@ -2130,6 +2132,20 @@ function renderUpdateReleaseList(releases = []) {
   });
 }
 
+function setUpdateReleaseListExpanded(expanded, options = {}) {
+  const hasReleases = Boolean(options.hasReleases);
+  isUpdateReleaseListExpanded = hasReleases && Boolean(expanded);
+
+  if (updateReleaseList) {
+    updateReleaseList.hidden = !hasReleases || !isUpdateReleaseListExpanded;
+  }
+  if (btnToggleUpdateDetails) {
+    btnToggleUpdateDetails.hidden = !hasReleases;
+    btnToggleUpdateDetails.textContent = isUpdateReleaseListExpanded ? '收起详情' : '展开详情';
+    btnToggleUpdateDetails.setAttribute('aria-expanded', String(isUpdateReleaseListExpanded));
+  }
+}
+
 function resetUpdateCard() {
   if (updateSection) {
     updateSection.hidden = true;
@@ -2143,6 +2159,7 @@ function resetUpdateCard() {
   if (updateReleaseList) {
     updateReleaseList.innerHTML = '';
   }
+  setUpdateReleaseListExpanded(false, { hasReleases: false });
   if (btnOpenRelease) {
     btnOpenRelease.hidden = true;
     btnOpenRelease.onclick = null;
@@ -2188,7 +2205,9 @@ function renderReleaseSnapshot(snapshot) {
           ? `当前 ${localVersionText}，共有 ${updateCount} 个新版本可更新。`
           : `当前 ${localVersionText}，可更新到 ${snapshot.latestVersion}。`;
       }
-      renderUpdateReleaseList(snapshot.newerReleases || []);
+      const newerReleases = Array.isArray(snapshot.newerReleases) ? snapshot.newerReleases : [];
+      renderUpdateReleaseList(newerReleases);
+      setUpdateReleaseListExpanded(false, { hasReleases: newerReleases.length > 0 });
       if (btnOpenRelease) {
         btnOpenRelease.hidden = false;
         btnOpenRelease.textContent = '前往更新';
@@ -3933,6 +3952,11 @@ btnConfigMenu?.addEventListener('click', (event) => {
 
 btnRepoHome?.addEventListener('click', () => {
   openRepositoryHomePage();
+});
+
+btnToggleUpdateDetails?.addEventListener('click', () => {
+  const hasReleases = Boolean(updateReleaseList?.childElementCount);
+  setUpdateReleaseListExpanded(!isUpdateReleaseListExpanded, { hasReleases });
 });
 
 extensionUpdateStatus?.addEventListener('click', () => {

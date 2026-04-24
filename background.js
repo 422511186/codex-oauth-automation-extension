@@ -1985,6 +1985,9 @@ async function pollMail163VerificationCode(step, state, pollPayload = {}) {
       const message = String(lastError.message || '');
       if (/no code found/i.test(message)) {
         await addLog(`步骤 ${step}：163 helper 暂未返回匹配验证码（${attempt}/${maxAttempts}）。`, attempt === maxAttempts ? 'warn' : 'info');
+      } else if (isMail163LoginAuthFailure(lastError)) {
+        await addLog(`步骤 ${step}：163 helper 返回邮箱登录失败，当前记录不再继续轮询：${message}`, 'warn');
+        throw lastError;
       } else {
         await addLog(`步骤 ${step}：163 helper 轮询失败：${message}`, 'warn');
       }
@@ -4414,6 +4417,14 @@ function isSignupUserAlreadyExistsFailure(error) {
   return /SIGNUP_USER_ALREADY_EXISTS::|user_already_exists/i.test(message);
 }
 
+function isMail163LoginAuthFailure(error) {
+  if (typeof loggingStatus !== 'undefined' && loggingStatus?.isMail163LoginAuthFailure) {
+    return loggingStatus.isMail163LoginAuthFailure(error);
+  }
+  const message = getErrorMessage(error);
+  return /MAIL163_LOGIN_AUTH_FAILED::|LOGIN Login error or password error/i.test(message);
+}
+
 function isStep9RecoverableAuthError(error) {
   const message = String(typeof error === 'string' ? error : error?.message || '');
   return /STEP9_OAUTH_RETRY::/i.test(message)
@@ -5996,6 +6007,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   hasSavedProgress,
   isAddPhoneAuthFailure,
   isMail163Provider,
+  isMail163LoginAuthFailure,
   isRestartCurrentAttemptError,
   isSignupUserAlreadyExistsFailure,
   isStopError,
@@ -6346,6 +6358,10 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
 
       if (step === 4) {
         if (isSignupUserAlreadyExistsFailure(err)) {
+          throw err;
+        }
+        if (isMail163LoginAuthFailure(err)) {
+          await addLog(`步骤 4：163 helper 登录失败，当前记录将直接标记失败：${getErrorMessage(err)}`, 'warn');
           throw err;
         }
         if (isMail2925ThreadTerminatedError(err)) {
