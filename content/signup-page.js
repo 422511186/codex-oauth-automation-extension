@@ -385,13 +385,82 @@ function getSignupEntryStateSummary(snapshot = inspectSignupEntryState()) {
 }
 
 function getSignupEntryDiagnostics() {
+  const view = typeof window !== 'undefined' ? window : globalThis;
+  const safeGetComputedStyle = (el) => {
+    if (!el || typeof view?.getComputedStyle !== 'function') {
+      return null;
+    }
+    try {
+      return view.getComputedStyle(el);
+    } catch {
+      return null;
+    }
+  };
+  const buildRectSummary = (el) => {
+    const rect = typeof el?.getBoundingClientRect === 'function'
+      ? el.getBoundingClientRect()
+      : null;
+    return rect
+      ? {
+          width: Math.round(rect.width || 0),
+          height: Math.round(rect.height || 0),
+        }
+      : null;
+  };
+  const buildVisibilityMeta = (el) => {
+    const style = safeGetComputedStyle(el);
+    return {
+      className: String(el?.className || '').slice(0, 200),
+      hidden: Boolean(el?.hidden),
+      ariaHidden: el?.getAttribute?.('aria-hidden') || '',
+      inert: typeof el?.hasAttribute === 'function' ? el.hasAttribute('inert') : false,
+      display: style?.display || '',
+      visibility: style?.visibility || '',
+      opacity: style?.opacity || '',
+      pointerEvents: style?.pointerEvents || '',
+    };
+  };
+  const findBlockingAncestor = (el) => {
+    let current = el?.parentElement || null;
+    while (current) {
+      const style = safeGetComputedStyle(current);
+      const rect = buildRectSummary(current);
+      const hidden = Boolean(current.hidden);
+      const ariaHidden = current.getAttribute?.('aria-hidden') || '';
+      const inert = typeof current.hasAttribute === 'function' ? current.hasAttribute('inert') : false;
+      const blockedByStyle = Boolean(
+        style
+        && (
+          style.display === 'none'
+          || style.visibility === 'hidden'
+          || style.opacity === '0'
+          || style.pointerEvents === 'none'
+        )
+      );
+      const blockedByRect = Boolean(rect && (rect.width === 0 || rect.height === 0));
+      if (hidden || ariaHidden === 'true' || inert || blockedByStyle || blockedByRect) {
+        return {
+          tag: (current.tagName || '').toLowerCase(),
+          id: current.id || '',
+          className: String(current.className || '').slice(0, 200),
+          hidden,
+          ariaHidden,
+          inert,
+          display: style?.display || '',
+          visibility: style?.visibility || '',
+          opacity: style?.opacity || '',
+          pointerEvents: style?.pointerEvents || '',
+          rect,
+        };
+      }
+      current = current.parentElement;
+    }
+    return null;
+  };
   const actionCandidates = document.querySelectorAll(
     'a, button, [role="button"], [role="link"], input[type="button"], input[type="submit"]'
   );
   const allActions = Array.from(actionCandidates).map((el) => {
-    const rect = typeof el?.getBoundingClientRect === 'function'
-      ? el.getBoundingClientRect()
-      : null;
     const text = getActionText(el);
     return {
       tag: (el.tagName || '').toLowerCase(),
@@ -399,12 +468,7 @@ function getSignupEntryDiagnostics() {
       text: text.slice(0, 80),
       visible: isVisibleElement(el),
       enabled: isActionEnabled(el),
-      rect: rect
-        ? {
-            width: Math.round(rect.width || 0),
-            height: Math.round(rect.height || 0),
-          }
-        : null,
+      rect: buildRectSummary(el),
     };
   });
   const visibleActions = Array.from(actionCandidates)
@@ -417,7 +481,20 @@ function getSignupEntryDiagnostics() {
       enabled: isActionEnabled(el),
     }))
     .filter((item) => item.text);
-  const signupLikeActions = allActions
+  const signupLikeActions = Array.from(actionCandidates)
+    .map((el) => {
+      const text = getActionText(el);
+      return {
+        tag: (el.tagName || '').toLowerCase(),
+        type: el.getAttribute?.('type') || '',
+        text: text.slice(0, 80),
+        visible: isVisibleElement(el),
+        enabled: isActionEnabled(el),
+        rect: buildRectSummary(el),
+        ...buildVisibilityMeta(el),
+        blockingAncestor: findBlockingAncestor(el),
+      };
+    })
     .filter((item) => item.text && SIGNUP_ENTRY_TRIGGER_PATTERN.test(item.text))
     .slice(0, 12);
 
@@ -425,13 +502,131 @@ function getSignupEntryDiagnostics() {
     url: location.href,
     title: document.title || '',
     readyState: document.readyState || '',
+    viewport: {
+      innerWidth: Math.round(Number(view?.innerWidth) || 0),
+      innerHeight: Math.round(Number(view?.innerHeight) || 0),
+      outerWidth: Math.round(Number(view?.outerWidth) || 0),
+      outerHeight: Math.round(Number(view?.outerHeight) || 0),
+      devicePixelRatio: Number(view?.devicePixelRatio) || 0,
+    },
     hasEmailInput: Boolean(getSignupEmailInput()),
     hasPasswordInput: Boolean(getSignupPasswordInput()),
     bodyContainsSignupText: SIGNUP_ENTRY_TRIGGER_PATTERN.test(getPageTextSnapshot()),
+    signupLikeActionCounts: {
+      total: signupLikeActions.length,
+      visible: signupLikeActions.filter((item) => item.visible).length,
+      hidden: signupLikeActions.filter((item) => !item.visible).length,
+    },
     signupLikeActions,
     visibleActions,
     bodyTextPreview: getPageTextSnapshot().slice(0, 240),
   };
+}
+
+function getSignupPasswordDiagnostics() {
+  const view = typeof window !== 'undefined' ? window : globalThis;
+  const safeGetComputedStyle = (el) => {
+    if (!el || typeof view?.getComputedStyle !== 'function') {
+      return null;
+    }
+    try {
+      return view.getComputedStyle(el);
+    } catch {
+      return null;
+    }
+  };
+  const buildRectSummary = (el) => {
+    const rect = typeof el?.getBoundingClientRect === 'function'
+      ? el.getBoundingClientRect()
+      : null;
+    return rect
+      ? {
+          width: Math.round(rect.width || 0),
+          height: Math.round(rect.height || 0),
+        }
+      : null;
+  };
+  const buildInputSummary = (el) => {
+    const style = safeGetComputedStyle(el);
+    return {
+      tag: (el?.tagName || '').toLowerCase(),
+      type: el?.getAttribute?.('type') || el?.type || '',
+      name: el?.getAttribute?.('name') || el?.name || '',
+      id: el?.id || '',
+      autocomplete: el?.getAttribute?.('autocomplete') || '',
+      placeholder: String(el?.getAttribute?.('placeholder') || '').slice(0, 80),
+      visible: isVisibleElement(el),
+      enabled: isActionEnabled(el),
+      valueLength: String(el?.value || '').length,
+      rect: buildRectSummary(el),
+      className: String(el?.className || '').slice(0, 200),
+      display: style?.display || '',
+      visibility: style?.visibility || '',
+      opacity: style?.opacity || '',
+      pointerEvents: style?.pointerEvents || '',
+      formAction: el?.form?.action || '',
+    };
+  };
+  const buildActionSummary = (el) => {
+    const style = safeGetComputedStyle(el);
+    return {
+      tag: (el?.tagName || '').toLowerCase(),
+      type: el?.getAttribute?.('type') || el?.type || '',
+      role: el?.getAttribute?.('role') || '',
+      text: getActionText(el).slice(0, 120),
+      visible: isVisibleElement(el),
+      enabled: isActionEnabled(el),
+      rect: buildRectSummary(el),
+      className: String(el?.className || '').slice(0, 200),
+      display: style?.display || '',
+      visibility: style?.visibility || '',
+      opacity: style?.opacity || '',
+      pointerEvents: style?.pointerEvents || '',
+      dataDdActionName: el?.getAttribute?.('data-dd-action-name') || '',
+      formAction: el?.form?.action || '',
+    };
+  };
+  const passwordInputs = Array.from(document.querySelectorAll(
+    'input[type="password"], input[name*="password" i], input[autocomplete="new-password"], input[autocomplete="current-password"]'
+  ))
+    .map(buildInputSummary)
+    .slice(0, 8);
+  const actionCandidates = Array.from(document.querySelectorAll(
+    'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]'
+  ))
+    .map(buildActionSummary)
+    .filter((item) => item.text)
+    .slice(0, 16);
+  const visibleActions = actionCandidates.filter((item) => item.visible).slice(0, 12);
+  const submitButton = getSignupPasswordSubmitButton({ allowDisabled: true });
+  const oneTimeCodeTrigger = findOneTimeCodeLoginTrigger();
+  const retryState = getSignupPasswordTimeoutErrorPageState();
+
+  return {
+    url: location.href,
+    title: document.title || '',
+    readyState: document.readyState || '',
+    displayedEmail: getSignupPasswordDisplayedEmail(),
+    hasVisiblePasswordInput: Boolean(getSignupPasswordInput()),
+    passwordInputCount: passwordInputs.length,
+    visiblePasswordInputCount: passwordInputs.filter((item) => item.visible).length,
+    passwordInputs,
+    submitButton: submitButton ? buildActionSummary(submitButton) : null,
+    oneTimeCodeTrigger: oneTimeCodeTrigger ? buildActionSummary(oneTimeCodeTrigger) : null,
+    retryPage: Boolean(retryState),
+    retryEnabled: Boolean(retryState?.retryEnabled),
+    userAlreadyExistsBlocked: Boolean(retryState?.userAlreadyExistsBlocked),
+    visibleActions,
+    bodyTextPreview: getPageTextSnapshot().slice(0, 240),
+  };
+}
+
+function logSignupPasswordDiagnostics(context, level = 'warn') {
+  try {
+    log(`${context}：密码页诊断快照：${JSON.stringify(getSignupPasswordDiagnostics())}`, level);
+  } catch (error) {
+    console.warn('[MultiPage:signup-page] failed to build signup password diagnostics:', error?.message || error);
+  }
 }
 
 async function waitForSignupEntryState(options = {}) {
@@ -621,6 +816,10 @@ async function step3_fillEmailPassword(payload) {
   }
 
   if (snapshot.state !== 'password_page' || !snapshot.passwordInput) {
+    logSignupPasswordDiagnostics('步骤 3：未能识别可填写的密码输入框');
+  }
+
+  if (snapshot.state !== 'password_page' || !snapshot.passwordInput) {
     throw new Error('在密码页未找到密码输入框。URL: ' + location.href);
   }
   if (normalizedEmail && snapshot.displayedEmail && snapshot.displayedEmail !== normalizedEmail) {
@@ -634,6 +833,12 @@ async function step3_fillEmailPassword(payload) {
   const submitBtn = snapshot.submitButton
     || getSignupPasswordSubmitButton({ allowDisabled: true })
     || await waitForElementByText('button', /continue|sign\s*up|submit|注册|创建|create/i, 5000).catch(() => null);
+
+  if (!submitBtn) {
+    logSignupPasswordDiagnostics('步骤 3：未找到可提交的密码页按钮');
+  } else if (typeof findOneTimeCodeLoginTrigger === 'function' && findOneTimeCodeLoginTrigger()) {
+    logSignupPasswordDiagnostics('步骤 3：当前密码页同时存在一次性验证码入口', 'info');
+  }
 
   // Report complete BEFORE submit, because submit causes page navigation
   // which kills the content script connection
@@ -1416,8 +1621,13 @@ function createStep6RecoverableResult(reason, snapshot, options = {}) {
   };
 }
 
-async function createStep6LoginTimeoutRecoverableResult(reason, snapshot, message) {
-  const resolvedSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
+async function createStep6LoginTimeoutRecoveryTransition(reason, snapshot, message, options = {}) {
+  const {
+    loginVerificationRequestedAt = null,
+    via = 'login_timeout_recovered',
+  } = options;
+  let resolvedSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
+  let recovered = false;
   if (resolvedSnapshot?.state === 'login_timeout_error_page') {
     try {
       const recoveryResult = await recoverCurrentAuthRetryPage({
@@ -1426,8 +1636,9 @@ async function createStep6LoginTimeoutRecoverableResult(reason, snapshot, messag
         step: 7,
         timeoutMs: 12000,
       });
-      if (recoveryResult?.recovered) {
-        log('步骤 7：登录超时报错页已点击“重试”，准备重新执行当前步骤。', 'warn');
+      recovered = Boolean(recoveryResult?.recovered);
+      if (recovered) {
+        log('步骤 7：登录超时报错页已点击“重试”，正在按恢复后的页面状态继续当前流程。', 'warn');
       }
     } catch (error) {
       if (/CF_SECURITY_BLOCKED::/i.test(String(error?.message || error || ''))) {
@@ -1437,7 +1648,46 @@ async function createStep6LoginTimeoutRecoverableResult(reason, snapshot, messag
     }
   }
 
-  return createStep6RecoverableResult(reason, resolvedSnapshot, {
+  resolvedSnapshot = recovered
+    ? normalizeStep6Snapshot(await waitForKnownLoginAuthState(4000))
+    : normalizeStep6Snapshot(inspectLoginAuthState());
+
+  if (resolvedSnapshot.state === 'verification_page') {
+    return {
+      action: 'done',
+      result: createStep6SuccessResult(resolvedSnapshot, {
+        via,
+        loginVerificationRequestedAt,
+      }),
+    };
+  }
+
+  if (resolvedSnapshot.state === 'password_page') {
+    log('步骤 7：登录超时报错页恢复后已进入密码页，继续当前登录流程。', 'warn');
+    return { action: 'password', snapshot: resolvedSnapshot };
+  }
+
+  if (resolvedSnapshot.state === 'email_page') {
+    log('步骤 7：登录超时报错页恢复后已回到邮箱输入页，继续当前登录流程。', 'warn');
+    return { action: 'email', snapshot: resolvedSnapshot };
+  }
+
+  return {
+    action: 'recoverable',
+    result: createStep6RecoverableResult(reason, resolvedSnapshot, {
+      message,
+      loginVerificationRequestedAt,
+    }),
+  };
+}
+
+async function createStep6LoginTimeoutRecoverableResult(reason, snapshot, message) {
+  const transition = await createStep6LoginTimeoutRecoveryTransition(reason, snapshot, message);
+  if (transition?.action === 'done' || transition?.action === 'recoverable') {
+    return transition.result;
+  }
+
+  return createStep6RecoverableResult(reason, transition?.snapshot || normalizeStep6Snapshot(inspectLoginAuthState()), {
     message,
   });
 }
@@ -1640,6 +1890,7 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
   const start = Date.now();
   let recoveryRound = 0;
   const maxRecoveryRounds = 3;
+  let passwordPageDiagnosticsLogged = false;
 
   while (Date.now() - start < timeout && recoveryRound < maxRecoveryRounds) {
     throwIfStopped();
@@ -1678,6 +1929,10 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
     }
 
     if (snapshot.state === 'password') {
+      if (!passwordPageDiagnosticsLogged) {
+        passwordPageDiagnosticsLogged = true;
+        logSignupPasswordDiagnostics(`${prepareLogLabel}：页面仍停留在密码页`);
+      }
       if (!password) {
         throw new Error('当前回到了密码页，但没有可用密码，无法自动重新提交。');
       }
@@ -1867,6 +2122,20 @@ async function fillVerificationCode(step, payload) {
   const { code } = payload;
   if (!code) throw new Error('未提供验证码。');
 
+  if (step === 4 && isStep5Ready()) {
+    log(`步骤 ${step}：检测到页面已进入下一阶段，本次验证码提交按成功处理。`, 'ok');
+    return { success: true, assumed: true, alreadyAdvanced: true };
+  }
+  if (step === 8) {
+    if (isStep8Ready()) {
+      log(`步骤 ${step}：检测到页面已进入 OAuth 同意页，本次验证码提交按成功处理。`, 'ok');
+      return { success: true, assumed: true, alreadyAdvanced: true };
+    }
+    if (isAddPhonePageReady()) {
+      return { success: true, addPhonePage: true, url: location.href };
+    }
+  }
+
   log(`步骤 ${step}：正在填写验证码：${code}`);
 
   if (step === 8) {
@@ -2012,13 +2281,30 @@ async function waitForStep6EmailSubmitTransition(emailSubmittedAt, timeout = 120
     }
 
     if (snapshot.state === 'login_timeout_error_page') {
+      const transition = await createStep6LoginTimeoutRecoveryTransition(
+        'login_timeout_error_page',
+        snapshot,
+        '提交邮箱后进入登录超时报错页。',
+        {
+          loginVerificationRequestedAt: emailSubmittedAt,
+          via: 'email_submit_timeout_recovered',
+        }
+      );
+      if (transition.action === 'done') {
+        return {
+          action: 'done',
+          result: transition.result,
+        };
+      }
+      if (transition.action === 'password') {
+        return { action: 'password', snapshot: transition.snapshot };
+      }
+      if (transition.action === 'email') {
+        return { action: 'email', snapshot: transition.snapshot };
+      }
       return {
         action: 'recoverable',
-        result: await createStep6LoginTimeoutRecoverableResult(
-          'login_timeout_error_page',
-          snapshot,
-          '提交邮箱后进入登录超时报错页。'
-        ),
+        result: transition.result,
       };
     }
 
@@ -2047,13 +2333,30 @@ async function waitForStep6EmailSubmitTransition(emailSubmittedAt, timeout = 120
     return { action: 'password', snapshot };
   }
   if (snapshot.state === 'login_timeout_error_page') {
+    const transition = await createStep6LoginTimeoutRecoveryTransition(
+      'login_timeout_error_page',
+      snapshot,
+      '提交邮箱后进入登录超时报错页。',
+      {
+        loginVerificationRequestedAt: emailSubmittedAt,
+        via: 'email_submit_timeout_recovered',
+      }
+    );
+    if (transition.action === 'done') {
+      return {
+        action: 'done',
+        result: transition.result,
+      };
+    }
+    if (transition.action === 'password') {
+      return { action: 'password', snapshot: transition.snapshot };
+    }
+    if (transition.action === 'email') {
+      return { action: 'email', snapshot: transition.snapshot };
+    }
     return {
       action: 'recoverable',
-      result: await createStep6LoginTimeoutRecoverableResult(
-        'login_timeout_error_page',
-        snapshot,
-        '提交邮箱后进入登录超时报错页。'
-      ),
+      result: transition.result,
     };
   }
   if (snapshot.state === 'oauth_consent_page') {
@@ -2090,13 +2393,30 @@ async function waitForStep6PasswordSubmitTransition(passwordSubmittedAt, timeout
     }
 
     if (snapshot.state === 'login_timeout_error_page') {
+      const transition = await createStep6LoginTimeoutRecoveryTransition(
+        'login_timeout_error_page',
+        snapshot,
+        '提交密码后进入登录超时报错页。',
+        {
+          loginVerificationRequestedAt: passwordSubmittedAt,
+          via: 'password_submit_timeout_recovered',
+        }
+      );
+      if (transition.action === 'done') {
+        return {
+          action: 'done',
+          result: transition.result,
+        };
+      }
+      if (transition.action === 'password') {
+        return { action: 'password', snapshot: transition.snapshot };
+      }
+      if (transition.action === 'email') {
+        return { action: 'email', snapshot: transition.snapshot };
+      }
       return {
         action: 'recoverable',
-        result: await createStep6LoginTimeoutRecoverableResult(
-          'login_timeout_error_page',
-          snapshot,
-          '提交密码后进入登录超时报错页。'
-        ),
+        result: transition.result,
       };
     }
 
@@ -2122,13 +2442,30 @@ async function waitForStep6PasswordSubmitTransition(passwordSubmittedAt, timeout
     };
   }
   if (snapshot.state === 'login_timeout_error_page') {
+    const transition = await createStep6LoginTimeoutRecoveryTransition(
+      'login_timeout_error_page',
+      snapshot,
+      '提交密码后进入登录超时报错页。',
+      {
+        loginVerificationRequestedAt: passwordSubmittedAt,
+        via: 'password_submit_timeout_recovered',
+      }
+    );
+    if (transition.action === 'done') {
+      return {
+        action: 'done',
+        result: transition.result,
+      };
+    }
+    if (transition.action === 'password') {
+      return { action: 'password', snapshot: transition.snapshot };
+    }
+    if (transition.action === 'email') {
+      return { action: 'email', snapshot: transition.snapshot };
+    }
     return {
       action: 'recoverable',
-      result: await createStep6LoginTimeoutRecoverableResult(
-        'login_timeout_error_page',
-        snapshot,
-        '提交密码后进入登录超时报错页。'
-      ),
+      result: transition.result,
     };
   }
   if (snapshot.state === 'oauth_consent_page') {
@@ -2165,11 +2502,22 @@ async function waitForStep6SwitchTransition(loginVerificationRequestedAt, timeou
     }
 
     if (snapshot.state === 'login_timeout_error_page') {
-      return await createStep6LoginTimeoutRecoverableResult(
+      const transition = await createStep6LoginTimeoutRecoveryTransition(
         'login_timeout_error_page',
         snapshot,
-        '切换到一次性验证码登录后进入登录超时报错页。'
+        '切换到一次性验证码登录后进入登录超时报错页。',
+        {
+          loginVerificationRequestedAt,
+          via: 'switch_to_one_time_code_timeout_recovered',
+        }
       );
+      if (transition.action === 'done') {
+        return transition.result;
+      }
+      if (transition.action === 'password' || transition.action === 'email') {
+        return transition;
+      }
+      return transition.result;
     }
 
     if (snapshot.state === 'oauth_consent_page') {
@@ -2191,11 +2539,22 @@ async function waitForStep6SwitchTransition(loginVerificationRequestedAt, timeou
     });
   }
   if (snapshot.state === 'login_timeout_error_page') {
-    return await createStep6LoginTimeoutRecoverableResult(
+    const transition = await createStep6LoginTimeoutRecoveryTransition(
       'login_timeout_error_page',
       snapshot,
-      '切换到一次性验证码登录后进入登录超时报错页。'
+      '切换到一次性验证码登录后进入登录超时报错页。',
+      {
+        loginVerificationRequestedAt,
+        via: 'switch_to_one_time_code_timeout_recovered',
+      }
     );
+    if (transition.action === 'done') {
+      return transition.result;
+    }
+    if (transition.action === 'password' || transition.action === 'email') {
+      return transition;
+    }
+    return transition.result;
   }
   if (snapshot.state === 'oauth_consent_page') {
     throw new Error(`切换到一次性验证码登录后页面直接进入 OAuth 授权页，未经过登录验证码页。URL: ${snapshot.url}`);
@@ -2209,7 +2568,7 @@ async function waitForStep6SwitchTransition(loginVerificationRequestedAt, timeou
   });
 }
 
-async function step6SwitchToOneTimeCodeLogin(snapshot) {
+async function step6SwitchToOneTimeCodeLogin(payload, snapshot) {
   const switchTrigger = snapshot?.switchTrigger || findOneTimeCodeLoginTrigger();
   if (!switchTrigger || !isActionEnabled(switchTrigger)) {
     return createStep6RecoverableResult('missing_one_time_code_trigger', normalizeStep6Snapshot(inspectLoginAuthState()), {
@@ -2231,6 +2590,12 @@ async function step6SwitchToOneTimeCodeLogin(snapshot) {
       via: result.via || 'switch_to_one_time_code_login',
     });
   }
+  if (result?.action === 'password') {
+    return step6LoginFromPasswordPage(payload, result.snapshot);
+  }
+  if (result?.action === 'email') {
+    return step6LoginFromEmailPage(payload, result.snapshot);
+  }
   return result;
 }
 
@@ -2242,7 +2607,7 @@ async function step6LoginFromPasswordPage(payload, snapshot) {
     if (!hasPassword) {
       if (currentSnapshot.switchTrigger) {
         log('步骤 7：当前未提供密码，改走一次性验证码登录。', 'warn');
-        return step6SwitchToOneTimeCodeLogin(currentSnapshot);
+        return step6SwitchToOneTimeCodeLogin(payload, currentSnapshot);
       }
 
       return createStep6RecoverableResult('missing_password_and_one_time_code_trigger', currentSnapshot, {
@@ -2272,8 +2637,14 @@ async function step6LoginFromPasswordPage(payload, snapshot) {
       log(`步骤 7：${transition.result.message || '提交密码后仍未进入登录验证码页面，准备重新执行步骤 7。'}`, 'warn');
       return transition.result;
     }
+    if (transition.action === 'password') {
+      return step6LoginFromPasswordPage(payload, transition.snapshot);
+    }
+    if (transition.action === 'email') {
+      return step6LoginFromEmailPage(payload, transition.snapshot);
+    }
     if (transition.action === 'switch') {
-      return step6SwitchToOneTimeCodeLogin(transition.snapshot);
+      return step6SwitchToOneTimeCodeLogin(payload, transition.snapshot);
     }
 
     return createStep6RecoverableResult('password_submit_unknown', normalizeStep6Snapshot(inspectLoginAuthState()), {
@@ -2282,7 +2653,7 @@ async function step6LoginFromPasswordPage(payload, snapshot) {
   }
 
   if (currentSnapshot.switchTrigger) {
-    return step6SwitchToOneTimeCodeLogin(currentSnapshot);
+    return step6SwitchToOneTimeCodeLogin(payload, currentSnapshot);
   }
 
   return createStep6RecoverableResult('password_page_unactionable', currentSnapshot, {
@@ -2322,6 +2693,9 @@ async function step6LoginFromEmailPage(payload, snapshot) {
     log(`步骤 7：${transition.result.message || '提交邮箱后仍未进入目标页面，准备重新执行步骤 7。'}`, 'warn');
     return transition.result;
   }
+  if (transition.action === 'email') {
+    return step6LoginFromEmailPage(payload, transition.snapshot);
+  }
   if (transition.action === 'password') {
     return step6LoginFromPasswordPage(payload, transition.snapshot);
   }
@@ -2335,11 +2709,10 @@ async function step6_login(payload) {
   const { email } = payload;
   if (!email) throw new Error('登录时缺少邮箱地址。');
 
-  log(`步骤 7：正在使用 ${email} 登录...`);
-
   const snapshot = normalizeStep6Snapshot(await waitForKnownLoginAuthState(15000));
 
   if (snapshot.state === 'verification_page') {
+    log('步骤 7：认证页已在登录验证码页，开始确认页面是否稳定。');
     return finalizeStep6VerificationReady({
       logLabel: '步骤 7 收尾',
       loginVerificationRequestedAt: null,
@@ -2348,19 +2721,39 @@ async function step6_login(payload) {
   }
 
   if (snapshot.state === 'login_timeout_error_page') {
-    log('步骤 7：检测到登录超时报错，准备重新执行步骤 7。', 'warn');
-    return await createStep6LoginTimeoutRecoverableResult(
+    log('步骤 7：检测到登录超时报错页，先尝试恢复当前页面。', 'warn');
+    const transition = await createStep6LoginTimeoutRecoveryTransition(
       'login_timeout_error_page',
       snapshot,
-      '当前页面处于登录超时报错页。'
+      '当前页面处于登录超时报错页。',
+      {
+        loginVerificationRequestedAt: null,
+        via: 'login_timeout_initial_recovered',
+      }
     );
+    if (transition.action === 'done') {
+      return finalizeStep6VerificationReady({
+        logLabel: '步骤 7 收尾',
+        loginVerificationRequestedAt: transition.result.loginVerificationRequestedAt || null,
+        via: transition.result.via || 'login_timeout_initial_recovered',
+      });
+    }
+    if (transition.action === 'email') {
+      return step6LoginFromEmailPage(payload, transition.snapshot);
+    }
+    if (transition.action === 'password') {
+      return step6LoginFromPasswordPage(payload, transition.snapshot);
+    }
+    return transition.result;
   }
 
   if (snapshot.state === 'email_page') {
+    log(`步骤 7：正在使用 ${email} 登录...`);
     return step6LoginFromEmailPage(payload, snapshot);
   }
 
   if (snapshot.state === 'password_page') {
+    log('步骤 7：认证页已在密码页，继续当前登录流程。');
     return step6LoginFromPasswordPage(payload, snapshot);
   }
 

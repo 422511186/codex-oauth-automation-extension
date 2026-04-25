@@ -7,11 +7,13 @@
       buildGeneratedAliasEmail,
       buildCloudflareTempEmailHeaders,
       CLOUDFLARE_TEMP_EMAIL_GENERATOR,
+      CUSTOM_EMAIL_POOL_GENERATOR,
       DUCK_AUTOFILL_URL,
       fetch,
       fetchIcloudHideMyEmail,
       getCloudflareTempEmailAddressFromResponse,
       getCloudflareTempEmailConfig,
+      getCustomEmailPoolEmail,
       getState,
       ensureMail2925AccountForFlow,
       joinCloudflareTempEmailUrl,
@@ -146,6 +148,7 @@
       const requestedName = String(options.localPart || options.name || '').trim().toLowerCase() || generateCloudflareAliasLocalPart();
       const payload = {
         enablePrefix: true,
+        enableRandomSubdomain: Boolean(config.useRandomSubdomain),
         name: requestedName,
         domain: config.domain,
       };
@@ -186,6 +189,24 @@
       await setEmailState(result.email);
       await addLog(`Duck 邮箱：${result.generated ? '已生成' : '已读取'} ${result.email}`, 'ok');
       return result.email;
+    }
+
+    async function fetchCustomEmailPoolEmail(state, options = {}) {
+      throwIfStopped();
+      const latestState = state || await getState();
+      const requestedIndex = Math.max(0, Math.floor(Number(options.poolIndex) || 0));
+      const email = String(getCustomEmailPoolEmail?.(latestState, requestedIndex + 1) || '').trim().toLowerCase();
+      if (!email) {
+        throw new Error(
+          requestedIndex > 0
+            ? `自定义邮箱池第 ${requestedIndex + 1} 个邮箱不存在，请检查邮箱池配置。`
+            : '自定义邮箱池为空，请先至少填写 1 个邮箱。'
+        );
+      }
+
+      await setEmailState(email);
+      await addLog(`自定义邮箱池：已取用 ${email}`, 'ok');
+      return email;
     }
 
     async function fetchManagedAliasEmail(state, options = {}) {
@@ -233,21 +254,45 @@
       const mail2925Mode = options.mail2925Mode !== undefined
         ? options.mail2925Mode
         : currentState.mail2925Mode;
-      if (isGeneratedAliasProvider?.(provider, mail2925Mode)) {
-        return fetchManagedAliasEmail(currentState, options);
-      }
       const generator = normalizeEmailGenerator(options.generator ?? currentState.emailGenerator);
+      const mergedState = {
+        ...currentState,
+        mailProvider: provider || currentState.mailProvider,
+        mail2925Mode,
+        emailGenerator: generator,
+      };
+      if (options.gmailBaseEmail !== undefined) {
+        mergedState.gmailBaseEmail = String(options.gmailBaseEmail || '').trim();
+      }
+      if (options.mail2925BaseEmail !== undefined) {
+        mergedState.mail2925BaseEmail = String(options.mail2925BaseEmail || '').trim();
+      }
+      if (options.customEmailPool !== undefined) {
+        mergedState.customEmailPool = options.customEmailPool;
+      }
       if (generator === 'custom') {
         throw new Error('当前邮箱生成方式为自定义邮箱，请直接填写注册邮箱。');
       }
+      if (generator === CUSTOM_EMAIL_POOL_GENERATOR) {
+        return fetchCustomEmailPoolEmail(mergedState, options);
+      }
+      const shouldUseManagedAlias = typeof isGeneratedAliasProvider === 'function'
+        ? isGeneratedAliasProvider(mergedState, mail2925Mode)
+        : false;
+      if (shouldUseManagedAlias) {
+        return fetchManagedAliasEmail(mergedState, options);
+      }
       if (generator === 'icloud') {
-        return fetchIcloudHideMyEmail();
+        const stateFetchMode = String(mergedState.icloudFetchMode || '').trim().toLowerCase();
+        return fetchIcloudHideMyEmail({
+          generateNew: Boolean(options.generateNew) || stateFetchMode === 'always_new',
+        });
       }
       if (generator === 'cloudflare') {
-        return fetchCloudflareEmail(currentState, options);
+        return fetchCloudflareEmail(mergedState, options);
       }
       if (generator === CLOUDFLARE_TEMP_EMAIL_GENERATOR) {
-        return fetchCloudflareTempEmailAddress(currentState, options);
+        return fetchCloudflareTempEmailAddress(mergedState, options);
       }
       return fetchDuckEmail(options);
     }
@@ -255,6 +300,7 @@
     return {
       ensureCloudflareTempEmailConfig,
       fetchCloudflareEmail,
+      fetchCustomEmailPoolEmail,
       fetchCloudflareTempEmailAddress,
       fetchDuckEmail,
       fetchGeneratedEmail,

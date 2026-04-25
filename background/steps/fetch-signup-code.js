@@ -11,6 +11,7 @@
       completeStepFromBackground,
       confirmCustomVerificationStepBypass,
       ensureMail2925MailboxSession,
+      ensureIcloudMailSession,
       getMailConfig,
       getTabId,
       HOTMAIL_PROVIDER,
@@ -25,6 +26,20 @@
       STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS,
       throwIfStopped,
     } = deps;
+
+    function getExpectedMail2925MailboxEmail(state = {}) {
+      if (Boolean(state?.mail2925UseAccountPool)) {
+        const currentAccountId = String(state?.currentMail2925AccountId || '').trim();
+        const accounts = Array.isArray(state?.mail2925Accounts) ? state.mail2925Accounts : [];
+        const currentAccount = accounts.find((account) => String(account?.id || '') === currentAccountId) || null;
+        const accountEmail = String(currentAccount?.email || '').trim().toLowerCase();
+        if (accountEmail) {
+          return accountEmail;
+        }
+      }
+
+      return String(state?.mail2925BaseEmail || '').trim().toLowerCase();
+    }
 
     async function focusOrOpenMailTab(mail) {
       const alive = await isTabAlive(mail.source);
@@ -63,7 +78,7 @@
       const signupTabId = await getTabId('signup-page');
 
       if (!signupTabId) {
-        throw new Error('认证页面标签页已关闭，无法继续步骤 4。');
+        throw new Error('认证页面标签页已关闭，无法继续步骤 4。请先执行步骤 1 或步骤 2，重新打开认证页后再试。');
       }
 
       await chrome.tabs.update(signupTabId, { active: true });
@@ -102,6 +117,15 @@
         return;
       }
 
+      if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
+        await addLog('步骤 4：正在确认 iCloud 邮箱登录态...', 'info');
+        await ensureIcloudMailSession({
+          state,
+          step: 4,
+          actionLabel: '步骤 4：确认 iCloud 邮箱登录态',
+        });
+      }
+
       throwIfStopped();
       if (
         mail.provider === HOTMAIL_PROVIDER
@@ -117,6 +141,7 @@
             accountId: state.currentMail2925AccountId || null,
             forceRelogin: false,
             allowLoginWhenOnLoginPage: Boolean(state?.mail2925UseAccountPool),
+            expectedMailboxEmail: getExpectedMail2925MailboxEmail(state),
             actionLabel: '步骤 4：确认 2925 邮箱登录态',
           });
         } else {

@@ -530,6 +530,18 @@ header {
   line-height: 1.6;
 }
 
+.update-card-reminder {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--orange) 28%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--orange-soft) 70%, var(--bg-base));
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .update-release-list {
   display: flex;
   flex-direction: column;
@@ -813,6 +825,17 @@ header {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   flex-shrink: 0;
+}
+
+#row-codex2api-url .data-label,
+#row-codex2api-admin-key .data-label {
+  width: 76px;
+}
+
+#row-codex2api-url .data-label {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 .data-value {
@@ -2418,6 +2441,19 @@ header {
   line-height: 1.55;
   color: var(--text-secondary);
   margin-bottom: 14px;
+  white-space: pre-line;
+}
+
+.modal-message a,
+.modal-alert a {
+  color: var(--blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.modal-message a:hover,
+.modal-alert a:hover {
+  color: var(--cyan);
 }
 
 .modal-alert {

@@ -10,6 +10,8 @@
       chrome,
       CLOUDFLARE_TEMP_EMAIL_PROVIDER,
       confirmCustomVerificationStepBypass,
+      ensureMail2925MailboxSession,
+      ensureIcloudMailSession,
       ensureStep8VerificationPageReady,
       getOAuthFlowRemainingMs,
       getOAuthFlowStepTimeoutMs,
@@ -57,6 +59,20 @@
 
     function normalizeStep8VerificationTargetEmail(value) {
       return String(value || '').trim().toLowerCase();
+    }
+
+    function getExpectedMail2925MailboxEmail(state = {}) {
+      if (Boolean(state?.mail2925UseAccountPool)) {
+        const currentAccountId = String(state?.currentMail2925AccountId || '').trim();
+        const accounts = Array.isArray(state?.mail2925Accounts) ? state.mail2925Accounts : [];
+        const currentAccount = accounts.find((account) => String(account?.id || '') === currentAccountId) || null;
+        const accountEmail = String(currentAccount?.email || '').trim().toLowerCase();
+        if (accountEmail) {
+          return accountEmail;
+        }
+      }
+
+      return String(state?.mail2925BaseEmail || '').trim().toLowerCase();
     }
 
     async function focusOrOpenMailTab(mail) {
@@ -128,6 +144,15 @@
       if (shouldUseCustomRegistrationEmail(state)) {
         await confirmCustomVerificationStepBypass(8);
         return;
+      }
+
+      if (mail.source === 'icloud-mail' && typeof ensureIcloudMailSession === 'function') {
+        await addLog('步骤 8：正在确认 iCloud 邮箱登录态...', 'info');
+        await ensureIcloudMailSession({
+          state,
+          step: 8,
+          actionLabel: '步骤 8：确认 iCloud 邮箱登录态',
+        });
       }
 
       throwIfStopped();

@@ -41,6 +41,7 @@
       getPendingAutoRunTimerPlan,
       getSourceLabel,
       getState,
+      getTabId,
       getStopRequested,
       handleAutoRunLoopUnhandledError,
       importSettingsBundle,
@@ -52,6 +53,7 @@
       isLocalhostOAuthCallbackUrl,
       isLuckmailProvider,
       isStopError,
+      isTabAlive,
       launchAutoRunTimerPlan,
       listIcloudAliases,
       listLuckmailPurchasesForManagement,
@@ -116,6 +118,23 @@
       return appendAccountRunRecord(status, state, reason);
     }
 
+    async function ensureManualStepPrerequisites(step) {
+      if (step !== 4) {
+        return;
+      }
+
+      const signupTabId = typeof getTabId === 'function'
+        ? await getTabId('signup-page')
+        : null;
+      const signupTabAlive = signupTabId && typeof isTabAlive === 'function'
+        ? await isTabAlive('signup-page')
+        : Boolean(signupTabId);
+
+      if (!signupTabId || !signupTabAlive) {
+        throw new Error('手动执行步骤 4 前，请先执行步骤 1 或步骤 2，确保认证页仍然打开并停留在验证码页。');
+      }
+    }
+
     async function handleStepData(step, payload) {
       switch (step) {
         case 1: {
@@ -129,6 +148,8 @@
           if (payload.sub2apiGroupId !== undefined) updates.sub2apiGroupId = payload.sub2apiGroupId || null;
           if (payload.sub2apiDraftName !== undefined) updates.sub2apiDraftName = payload.sub2apiDraftName || null;
           if (payload.sub2apiProxyId !== undefined) updates.sub2apiProxyId = payload.sub2apiProxyId || null;
+          if (payload.codex2apiSessionId !== undefined) updates.codex2apiSessionId = payload.codex2apiSessionId || null;
+          if (payload.codex2apiOAuthState !== undefined) updates.codex2apiOAuthState = payload.codex2apiOAuthState || null;
           if (Object.keys(updates).length) {
             await setState(updates);
           }
@@ -137,6 +158,18 @@
         case 2:
           if (payload.email) {
             await setEmailState(payload.email);
+          }
+          if (payload.skipRegistrationFlow) {
+            const latestState = await getState();
+            for (const skipStep of [3, 4, 5]) {
+              const status = latestState.stepStatuses?.[skipStep];
+              if (status === 'running' || status === 'completed' || status === 'manual_completed') {
+                continue;
+              }
+              await setStepStatus(skipStep, 'skipped');
+            }
+            await addLog('步骤 2：检测到当前已登录会话，已自动跳过步骤 3/4/5，流程将直接进入步骤 6。', 'warn');
+            break;
           }
           if (payload.skippedPasswordStep) {
             const latestState = await getState();
@@ -166,6 +199,14 @@
             lastEmailTimestamp: payload.emailTimestamp || null,
             signupVerificationRequestedAt: null,
           });
+          if (payload.skipProfileStep) {
+            const latestState = await getState();
+            const step5Status = latestState.stepStatuses?.[5];
+            if (step5Status !== 'running' && step5Status !== 'completed' && step5Status !== 'manual_completed') {
+              await setStepStatus(5, 'skipped');
+              await addLog('步骤 4：检测到账号已直接进入已登录态，已自动跳过步骤 5。', 'warn');
+            }
+          }
           break;
         case 8:
           await setState({
@@ -431,6 +472,9 @@
             await ensureManualInteractionAllowed('手动执行步骤');
           }
           const step = message.payload.step;
+          if (message.source === 'sidepanel') {
+            await ensureManualStepPrerequisites(step);
+          }
           if (message.source === 'sidepanel') {
             await invalidateDownstreamAfterStepRestart(step, { logLabel: `步骤 ${step} 重新执行` });
           }

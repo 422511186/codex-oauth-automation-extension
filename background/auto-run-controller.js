@@ -102,6 +102,12 @@
         .join('；');
     }
 
+    function shouldKeepCustomMailProviderPoolEmail(state = {}) {
+      return String(state?.mailProvider || '').trim().toLowerCase() === 'custom'
+        && Array.isArray(state?.customMailProviderPool)
+        && state.customMailProviderPool.length > 0;
+    }
+
     async function logAutoRunFinalSummary(totalRuns, roundSummaries = []) {
       const summaries = buildAutoRunRoundSummaries(totalRuns, roundSummaries);
       const successRounds = summaries.filter((item) => item.status === 'success');
@@ -390,8 +396,10 @@
         let attemptRun = resumingCurrentRound ? resumeAttemptRun : 1;
         let reuseExistingProgress = resumingCurrentRound;
         const retryLimitForRound = AUTO_RUN_MAX_RETRIES_PER_ROUND + 1;
+        const currentRoundState = await getState();
+        const keepSameEmailUntilAddPhone = autoRunSkipFailures && shouldKeepCustomMailProviderPoolEmail(currentRoundState);
         let maxAttemptsForRound = autoRunSkipFailures
-          ? retryLimitForRound
+          ? (keepSameEmailUntilAddPhone ? Number.MAX_SAFE_INTEGER : retryLimitForRound)
           : Math.max(1, attemptRun);
 
         while (attemptRun <= maxAttemptsForRound) {
@@ -544,6 +552,7 @@
             const blockedByMail163LoginAuthFailure = typeof isMail163LoginAuthFailure === 'function'
               && isMail163LoginAuthFailure(err);
             const blockedBySignupUserAlreadyExists = typeof isSignupUserAlreadyExistsFailure === 'function'
+              && !keepSameEmailUntilAddPhone
               && isSignupUserAlreadyExistsFailure(err);
             const canRetry = !blockedByAddPhone
               && !blockedByMail163LoginAuthFailure
@@ -652,7 +661,9 @@
               });
               forceFreshTabsNextRun = true;
               await addLog(
-                `自动重试：${Math.round(AUTO_RUN_RETRY_DELAY_MS / 1000)} 秒后开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun + 1} 次尝试（第 ${retryIndex}/${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试）。`,
+                keepSameEmailUntilAddPhone
+                  ? `自动重试：${Math.round(AUTO_RUN_RETRY_DELAY_MS / 1000)} 秒后继续使用当前邮箱，开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun + 1} 次尝试。`
+                  : `自动重试：${Math.round(AUTO_RUN_RETRY_DELAY_MS / 1000)} 秒后开始第 ${targetRun}/${totalRuns} 轮第 ${attemptRun + 1} 次尝试（第 ${retryIndex}/${AUTO_RUN_MAX_RETRIES_PER_ROUND} 次重试）。`,
                 'warn'
               );
               try {
