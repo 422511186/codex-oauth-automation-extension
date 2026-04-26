@@ -53,12 +53,14 @@ function extractFunction(name) {
 }
 
 const bundle = [
+  extractFunction('normalizeMail163AutoRunStartStep'),
   extractFunction('isAddPhoneAuthUrl'),
   extractFunction('isAddPhoneAuthState'),
   extractFunction('isMail2925ThreadTerminatedError'),
   extractFunction('isSignupUserAlreadyExistsFailure'),
   extractFunction('isMail163LoginAuthFailure'),
   extractFunction('getPostStep6AutoRestartDecision'),
+  extractFunction('prepareMail163AutoRunStartStep'),
   extractFunction('runAutoSequenceFromStep'),
 ].join('\n');
 
@@ -67,6 +69,8 @@ test('auto-run stops step4 restart path when mail2925 ends the current thread', 
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const DEFAULT_MAIL163_AUTO_RUN_START_STEP = 1;
+const MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES = new Set([1, 2, 6, 7]);
 const chrome = {
   tabs: {
     update: async () => {},
@@ -108,6 +112,24 @@ async function ensureAutoEmailReady() {
 }
 
 async function broadcastAutoRunStatus() {}
+
+function isMail163Provider(state) {
+  return String(state?.mailProvider || '') === '163';
+}
+
+async function ensureMail163AccountForFlow() {
+  return {
+    id: 'acc-1',
+    email: currentState.email,
+  };
+}
+
+async function setPasswordState(password) {
+  currentState = {
+    ...currentState,
+    password,
+  };
+}
 
 async function getState() {
   return currentState;

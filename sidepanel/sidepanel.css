@@ -1164,6 +1164,21 @@ header {
   flex: 1;
 }
 
+.mail163-bulk-category-row {
+  align-items: center;
+}
+
+.mail163-bulk-category-inline {
+  width: 100%;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mail163-bulk-category-select {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
 .hotmail-list-shell {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -1317,6 +1332,17 @@ header {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.mail163-account-category-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mail163-account-category-select {
+  min-width: 112px;
 }
 
 .hotmail-empty {

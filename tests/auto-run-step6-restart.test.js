@@ -53,11 +53,13 @@ function extractFunction(name) {
 }
 
 const bundle = [
+  extractFunction('normalizeMail163AutoRunStartStep'),
   extractFunction('isAddPhoneAuthFailure'),
   extractFunction('isAddPhoneAuthUrl'),
   extractFunction('isAddPhoneAuthState'),
   extractFunction('isMail163LoginAuthFailure'),
   extractFunction('getPostStep6AutoRestartDecision'),
+  extractFunction('prepareMail163AutoRunStartStep'),
   extractFunction('runAutoSequenceFromStep'),
 ].join('\n');
 
@@ -74,6 +76,8 @@ function createHarness(options = {}) {
 const AUTO_STEP_DELAYS = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
 const LAST_STEP_ID = 10;
 const FINAL_OAUTH_CHAIN_START_STEP = 7;
+const DEFAULT_MAIL163_AUTO_RUN_START_STEP = 1;
+const MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES = new Set([1, 2, 6, 7]);
 const LOG_PREFIX = '[test]';
 const chrome = {
   tabs: {
@@ -86,6 +90,8 @@ const events = {
   steps: [],
   logs: [],
   invalidations: [],
+  mail163Allocations: [],
+  passwordStates: [],
 };
 
 async function addLog(message, level = 'info') {
@@ -98,7 +104,23 @@ async function getState() {
   return {
     stepStatuses: { 3: 'completed' },
     mailProvider: '163',
+    customPassword: 'Secret123!',
+    currentMail163AccountId: 'acc-1',
+    autoRunLockedMail163AccountId: null,
   };
+}
+function isMail163Provider(state) {
+  return String(state?.mailProvider || '') === '163';
+}
+async function ensureMail163AccountForFlow(options = {}) {
+  events.mail163Allocations.push(options);
+  return {
+    id: 'acc-1',
+    email: 'pool-run@163.com',
+  };
+}
+async function setPasswordState(password) {
+  events.passwordStates.push(password);
 }
 function isStopError(error) {
   return (error?.message || String(error || '')) === '流程已被用户停止。';
@@ -230,4 +252,25 @@ test('auto-run stop errors after step 7 are rethrown immediately instead of rest
   assert.equal(result.events.invalidations.length, 0);
   assert.deepStrictEqual(result.events.steps, [7, 8, 9]);
   assert.ok(!result.events.logs.some(({ message }) => /回到步骤 7 重新开始授权流程/.test(message)));
+});
+
+test('auto-run prepares mail163 account and password before starting from step 6', async () => {
+  const harness = createHarness({
+    startStep: 6,
+    failureBudget: 0,
+  });
+
+  const events = await harness.run();
+
+  assert.deepStrictEqual(events.steps, [6, 7, 8, 9, 10]);
+  assert.deepStrictEqual(events.mail163Allocations, [
+    {
+      allowAllocate: true,
+      preferredAccountId: 'acc-1',
+      lockedAccountId: null,
+      markRunning: true,
+    },
+  ]);
+  assert.deepStrictEqual(events.passwordStates, ['Secret123!']);
+  assert.ok(events.logs.some(({ message }) => /从步骤 6 开始/.test(message)));
 });

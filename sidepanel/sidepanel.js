@@ -164,9 +164,11 @@ const inputMail163HelperBaseUrl = document.getElementById('input-mail163-helper-
 const inputMail163Email = document.getElementById('input-mail163-email');
 const inputMail163AuthCode = document.getElementById('input-mail163-auth-code');
 const inputMail163Search = document.getElementById('input-mail163-search');
+const selectMail163BulkCategory = document.getElementById('select-mail163-bulk-category');
 const inputMail163Import = document.getElementById('input-mail163-import');
 const inputMail163ImportFile = document.getElementById('input-mail163-import-file');
 const btnAddMail163Account = document.getElementById('btn-add-mail163-account');
+const btnApplyMail163BulkCategory = document.getElementById('btn-apply-mail163-bulk-category');
 const btnBulkTestMail163Accounts = document.getElementById('btn-bulk-test-mail163-accounts');
 const btnExportMail163Accounts = document.getElementById('btn-export-mail163-accounts');
 const btnLoadMail163File = document.getElementById('btn-load-mail163-file');
@@ -222,6 +224,8 @@ const selectCfDomain = document.getElementById('select-cf-domain');
 const inputCfDomain = document.getElementById('input-cf-domain');
 const btnCfDomainMode = document.getElementById('btn-cf-domain-mode');
 const inputRunCount = document.getElementById('input-run-count');
+const rowMail163AutoRunStartStep = document.getElementById('row-mail163-auto-run-start-step');
+const selectMail163AutoRunStartStep = document.getElementById('select-mail163-auto-run-start-step');
 const inputAutoSkipFailures = document.getElementById('input-auto-skip-failures');
 const inputAutoSkipFailuresThreadIntervalMinutes = document.getElementById('input-auto-skip-failures-thread-interval-minutes');
 const inputAutoDelayEnabled = document.getElementById('input-auto-delay-enabled');
@@ -270,6 +274,8 @@ const AUTO_SKIP_FAILURES_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-auto-skip-fai
 const AUTO_RUN_FALLBACK_RISK_PROMPT_DISMISSED_STORAGE_KEY = 'multipage-auto-run-fallback-risk-prompt-dismissed';
 const CONTRIBUTION_CONTENT_PROMPT_DISMISSED_VERSION_STORAGE_KEY = 'multipage-contribution-content-prompt-dismissed-version';
 const AUTO_RUN_FALLBACK_RISK_WARNING_MIN_RUNS = 3;
+const DEFAULT_MAIL163_AUTO_RUN_START_STEP = 1;
+const MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES = new Set([1, 2, 6, 7]);
 const HOTMAIL_SERVICE_MODE_REMOTE = 'remote';
 const HOTMAIL_SERVICE_MODE_LOCAL = 'local';
 const ICLOUD_PROVIDER = 'icloud';
@@ -1538,6 +1544,7 @@ function collectSettingsPayload() {
     cloudflareTempEmailReceiveMailbox: normalizeCloudflareTempEmailReceiveMailboxValue(inputTempEmailReceiveMailbox.value),
     cloudflareTempEmailDomain: selectedCloudflareTempEmailDomain,
     cloudflareTempEmailDomains: tempEmailDomains,
+    mail163AutoRunStartStep: getSelectedMail163AutoRunStartStep(),
     autoRunSkipFailures: inputAutoSkipFailures.checked,
     autoRunFallbackThreadIntervalMinutes: normalizeAutoRunThreadIntervalMinutes(inputAutoSkipFailuresThreadIntervalMinutes.value),
     autoRunDelayEnabled: inputAutoDelayEnabled.checked,
@@ -1560,6 +1567,20 @@ function normalizeMail2925Mode(value = '') {
   return String(value || '').trim().toLowerCase() === MAIL_2925_MODE_RECEIVE
     ? MAIL_2925_MODE_RECEIVE
     : DEFAULT_MAIL_2925_MODE;
+}
+
+function normalizeMail163AutoRunStartStepValue(value, fallback = DEFAULT_MAIL163_AUTO_RUN_START_STEP) {
+  const normalizedFallback = MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES.has(Number(fallback))
+    ? Number(fallback)
+    : DEFAULT_MAIL163_AUTO_RUN_START_STEP;
+  const numeric = Math.floor(Number(value));
+  return MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES.has(numeric)
+    ? numeric
+    : normalizedFallback;
+}
+
+function getSelectedMail163AutoRunStartStep() {
+  return normalizeMail163AutoRunStartStepValue(selectMail163AutoRunStartStep?.value);
 }
 
 function normalizeHotmailServiceMode(value = '') {
@@ -1956,6 +1977,11 @@ function applySettingsState(state) {
   inputAutoDelayEnabled.checked = Boolean(state?.autoRunDelayEnabled);
   inputAutoDelayMinutes.value = String(normalizeAutoDelayMinutes(state?.autoRunDelayMinutes));
   inputAutoStepDelaySeconds.value = formatAutoStepDelayInputValue(state?.autoStepDelaySeconds);
+  if (selectMail163AutoRunStartStep) {
+    selectMail163AutoRunStartStep.value = String(
+      normalizeMail163AutoRunStartStepValue(state?.mail163AutoRunStartStep, DEFAULT_MAIL163_AUTO_RUN_START_STEP)
+    );
+  }
   if (inputVerificationResendCount) {
     const restoredVerificationResendCount = state?.verificationResendCount !== undefined
       ? state.verificationResendCount
@@ -2805,6 +2831,9 @@ function updateMailProviderUI() {
   if (mail163Section) {
     mail163Section.style.display = useMail163 ? '' : 'none';
   }
+  if (rowMail163AutoRunStartStep) {
+    rowMail163AutoRunStartStep.style.display = useMail163 ? '' : 'none';
+  }
   if (mail2925Section) {
     mail2925Section.style.display = useMail2925AccountPool ? '' : 'none';
   }
@@ -3325,6 +3354,7 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
   },
   dom: {
     btnAddMail163Account,
+    btnApplyMail163BulkCategory,
     btnBulkTestMail163Accounts,
     btnExportMail163Accounts,
     btnDeleteAllMail163Accounts,
@@ -3334,6 +3364,7 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
     btnToggleMail163List,
     inputEmail,
     inputMail163AuthCode,
+    selectMail163BulkCategory,
     inputMail163Email,
     inputMail163Search,
     inputMail163Import,
@@ -4016,6 +4047,7 @@ async function startAutoRunFromCurrentSettings() {
   const totalRuns = getRunCountValue();
   let mode = 'restart';
   const autoRunSkipFailures = inputAutoSkipFailures.checked;
+  const mail163AutoRunStartStep = getSelectedMail163AutoRunStartStep();
   const contributionNickname = String(inputContributionNickname?.value || '').trim();
   const contributionQq = String(inputContributionQq?.value || '').trim();
   const fallbackThreadIntervalMinutes = normalizeAutoRunThreadIntervalMinutes(
@@ -4059,6 +4091,7 @@ async function startAutoRunFromCurrentSettings() {
       totalRuns,
       delayMinutes,
       autoRunSkipFailures,
+      mail163AutoRunStartStep,
       contributionMode: Boolean(latestState?.contributionMode),
       contributionNickname,
       contributionQq,
@@ -4600,6 +4633,17 @@ inputAutoDelayEnabled.addEventListener('change', () => {
   saveSettings({ silent: true }).catch(() => { });
 });
 
+selectMail163AutoRunStartStep?.addEventListener('change', () => {
+  selectMail163AutoRunStartStep.value = String(
+    normalizeMail163AutoRunStartStepValue(
+      selectMail163AutoRunStartStep.value,
+      DEFAULT_MAIL163_AUTO_RUN_START_STEP
+    )
+  );
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
 inputAutoDelayMinutes.addEventListener('input', () => {
   markSettingsDirty(true);
   scheduleSettingsAutoSave();
@@ -4868,6 +4912,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.payload.autoRunSkipFailures !== undefined) {
         inputAutoSkipFailures.checked = Boolean(message.payload.autoRunSkipFailures);
         updateFallbackThreadIntervalInputState();
+      }
+      if (message.payload.mail163AutoRunStartStep !== undefined && selectMail163AutoRunStartStep) {
+        selectMail163AutoRunStartStep.value = String(
+          normalizeMail163AutoRunStartStepValue(
+            message.payload.mail163AutoRunStartStep,
+            DEFAULT_MAIL163_AUTO_RUN_START_STEP
+          )
+        );
       }
       if (message.payload.autoRunDelayEnabled !== undefined) {
         inputAutoDelayEnabled.checked = Boolean(message.payload.autoRunDelayEnabled);

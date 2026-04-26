@@ -193,6 +193,8 @@ const DEFAULT_HOTMAIL_REMOTE_BASE_URL = '';
 const DEFAULT_HOTMAIL_LOCAL_BASE_URL = 'http://127.0.0.1:17373';
 const DEFAULT_MAIL163_HELPER_BASE_URL = 'http://127.0.0.1:17374';
 const DEFAULT_ACCOUNT_RUN_HISTORY_HELPER_BASE_URL = DEFAULT_HOTMAIL_LOCAL_BASE_URL;
+const DEFAULT_MAIL163_AUTO_RUN_START_STEP = 1;
+const MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES = new Set([1, 2, 6, 7]);
 const HOTMAIL_LOCAL_HELPER_TIMEOUT_MS = 45000;
 const DEFAULT_LUCKMAIL_PROJECT_CODE = 'openai';
 const DISPLAY_TIMEZONE = 'Asia/Shanghai';
@@ -268,6 +270,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   autoRunDelayEnabled: false,
   autoRunDelayMinutes: 30,
   autoStepDelaySeconds: null,
+  mail163AutoRunStartStep: DEFAULT_MAIL163_AUTO_RUN_START_STEP,
   verificationResendCount: DEFAULT_VERIFICATION_RESEND_COUNT,
   mailProvider: '163',
   mail2925Mode: DEFAULT_MAIL_2925_MODE,
@@ -875,6 +878,16 @@ function normalizeCloudflareTempEmailReceiveMailbox(value = '') {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : '';
 }
 
+function normalizeMail163AutoRunStartStep(value, fallback = DEFAULT_MAIL163_AUTO_RUN_START_STEP) {
+  const normalizedFallback = MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES.has(Number(fallback))
+    ? Number(fallback)
+    : DEFAULT_MAIL163_AUTO_RUN_START_STEP;
+  const numeric = Math.floor(Number(value));
+  return MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES.has(numeric)
+    ? numeric
+    : normalizedFallback;
+}
+
 function resolveCloudflareTempEmailPollTargetEmail(state = {}, pollPayload = {}, config = getCloudflareTempEmailConfig(state)) {
   const configuredReceiveMailbox = normalizeCloudflareTempEmailReceiveMailbox(config.receiveMailbox);
   if (configuredReceiveMailbox) {
@@ -920,6 +933,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeAutoRunDelayMinutes(value);
     case 'autoStepDelaySeconds':
       return normalizeAutoStepDelaySeconds(value, PERSISTED_SETTING_DEFAULTS.autoStepDelaySeconds);
+    case 'mail163AutoRunStartStep':
+      return normalizeMail163AutoRunStartStep(value, PERSISTED_SETTING_DEFAULTS.mail163AutoRunStartStep);
     case 'verificationResendCount':
       return normalizeVerificationResendCount(value, DEFAULT_VERIFICATION_RESEND_COUNT);
     case 'mailProvider':
@@ -6021,6 +6036,7 @@ const autoRunController = self.MultiPageBackgroundAutoRunController?.createAutoR
   isSignupUserAlreadyExistsFailure,
   isStopError,
   launchAutoRunTimerPlan,
+  normalizeMail163AutoRunStartStep,
   normalizeAutoRunFallbackThreadIntervalMinutes,
   patchMail163Account,
   persistAutoRunTimerPlan,
@@ -6307,6 +6323,52 @@ async function ensureAutoEmailReady(targetRun, totalRuns, attemptRuns) {
   return resumedState.email;
 }
 
+async function prepareMail163AutoRunStartStep(startStep, context = {}) {
+  const normalizedStartStep = normalizeMail163AutoRunStartStep(startStep, DEFAULT_MAIL163_AUTO_RUN_START_STEP);
+  if (normalizedStartStep <= 1) {
+    return normalizedStartStep;
+  }
+
+  const currentState = await getState();
+  if (!isMail163Provider(currentState)) {
+    return normalizedStartStep;
+  }
+
+  if (normalizedStartStep === 2) {
+    return normalizedStartStep;
+  }
+
+  if (normalizedStartStep !== 6 && normalizedStartStep !== 7) {
+    throw new Error(`163 自动开始步骤 ${normalizedStartStep} 当前不可用于批量 fresh round。请改为步骤 1、2、6 或 7。`);
+  }
+
+  const customPassword = String(currentState.customPassword || '').trim();
+  if (!customPassword) {
+    throw new Error(`从步骤 ${normalizedStartStep} 开始自动运行前，请先填写固定账户密码。当前起点不会自动生成密码。`);
+  }
+
+  const account = await ensureMail163AccountForFlow({
+    allowAllocate: true,
+    preferredAccountId: currentState.currentMail163AccountId || null,
+    lockedAccountId: currentState.autoRunLockedMail163AccountId || null,
+    markRunning: true,
+  });
+  await setPasswordState(customPassword);
+
+  const { targetRun = 1, totalRuns = 1, attemptRuns = 1 } = context;
+  await addLog(
+    `=== 目标 ${targetRun}/${totalRuns} 轮：已分配 163 号源 ${account.email}，直接从步骤 ${normalizedStartStep} 开始（第 ${attemptRuns} 次尝试）===`,
+    'ok'
+  );
+  await addLog(
+    normalizedStartStep === 6
+      ? '自动运行：已按配置跳过步骤 1~5，请确保当前 163 账号对应流程已经完成注册前半段。'
+      : '自动运行：已按配置跳过步骤 1~6，请确保当前 163 账号已经完成注册，可直接执行 OAuth 登录链路。',
+    'warn'
+  );
+  return normalizedStartStep;
+}
+
 async function runAutoSequenceFromStep(startStep, context = {}) {
   const { targetRun, totalRuns, attemptRuns, continued = false } = context;
   let postStep7RestartCount = 0;
@@ -6315,11 +6377,22 @@ async function runAutoSequenceFromStep(startStep, context = {}) {
   let continueCurrentAttempt = continued;
 
   while (true) {
+  if (!continueCurrentAttempt) {
+    currentStartStep = await prepareMail163AutoRunStartStep(currentStartStep, {
+      targetRun,
+      totalRuns,
+      attemptRuns,
+    });
+  }
 
   if (continueCurrentAttempt) {
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：继续当前进度，从步骤 ${startStep} 开始（第 ${attemptRuns} 次尝试）===`, 'info');
-  } else {
+  } else if (currentStartStep <= 1) {
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：第 ${attemptRuns} 次尝试，阶段 1，打开官网并进入密码页 ===`, 'info');
+  } else if (currentStartStep <= 3) {
+    await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：第 ${attemptRuns} 次尝试，从步骤 ${currentStartStep} 开始继续注册前半段 ===`, 'info');
+  } else {
+    await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：第 ${attemptRuns} 次尝试，按配置从步骤 ${currentStartStep} 开始继续后半段流程 ===`, 'info');
   }
 
   if (currentStartStep <= 1) {

@@ -30,6 +30,7 @@
       isSignupUserAlreadyExistsFailure,
       isStopError,
       launchAutoRunTimerPlan,
+      normalizeMail163AutoRunStartStep,
       normalizeAutoRunFallbackThreadIntervalMinutes,
       patchMail163Account,
       persistAutoRunTimerPlan,
@@ -336,6 +337,15 @@
       const autoRunSkipFailures = Boolean(options.autoRunSkipFailures);
       const initialMode = options.mode === 'continue' ? 'continue' : 'restart';
       const startingState = await getState();
+      const defaultMail163AutoRunStartStep = typeof isMail163Provider === 'function' && isMail163Provider(startingState)
+        ? (typeof normalizeMail163AutoRunStartStep === 'function'
+          ? normalizeMail163AutoRunStartStep(
+            options.mail163AutoRunStartStep !== undefined
+              ? options.mail163AutoRunStartStep
+              : startingState.mail163AutoRunStartStep
+          )
+          : 1)
+        : 1;
       const lockedMail163AccountId = options.lockedMail163AccountId !== undefined
         ? normalizeLockedMail163AccountId(options.lockedMail163AccountId)
         : normalizeLockedMail163AccountId(startingState.autoRunLockedMail163AccountId);
@@ -400,7 +410,7 @@
             autoRunAttemptRun: attemptRun,
           });
           roundSummary.attempts = attemptRun;
-          let startStep = 1;
+          let startStep = defaultMail163AutoRunStartStep;
           let useExistingProgress = false;
 
           if (reuseExistingProgress) {
@@ -432,6 +442,7 @@
               autoRunDelayEnabled: prevState.autoRunDelayEnabled,
               autoRunDelayMinutes: prevState.autoRunDelayMinutes,
               autoStepDelaySeconds: prevState.autoStepDelaySeconds,
+              mail163AutoRunStartStep: prevState.mail163AutoRunStartStep,
               mailProvider: prevState.mailProvider,
               emailGenerator: prevState.emailGenerator,
               gmailBaseEmail: prevState.gmailBaseEmail,

@@ -1,5 +1,7 @@
 (function attachSidepanelMail163Manager(globalScope) {
-  const MAIL163_FILTER_VALUES = new Set(['all', 'idle', 'running', 'success', 'failed', 'stopped']);
+  const MAIL163_CATEGORY_VALUES = ['idle', 'running', 'success', 'failed', 'stopped'];
+  const MAIL163_FILTER_VALUES = new Set(['all', ...MAIL163_CATEGORY_VALUES]);
+  const MAIL163_CATEGORY_VALUE_SET = new Set(MAIL163_CATEGORY_VALUES);
   const MAIL163_FILTER_LABELS = {
     all: '全部',
     idle: '未执行',
@@ -10,6 +12,7 @@
   };
   const MAIL163_BACKUP_SCHEMA_VERSION = 1;
   const MAIL163_BACKUP_TYPE = 'mail163-account-pool';
+  const DEFAULT_MAIL163_BULK_CATEGORY = 'idle';
 
   function createMail163Manager(context = {}) {
     const {
@@ -44,11 +47,38 @@
       return MAIL163_FILTER_VALUES.has(normalized) ? normalized : 'all';
     }
 
+    function normalizeCategory(value, fallback = DEFAULT_MAIL163_BULK_CATEGORY) {
+      const normalized = String(value || '').trim().toLowerCase();
+      if (MAIL163_CATEGORY_VALUE_SET.has(normalized)) {
+        return normalized;
+      }
+      return MAIL163_CATEGORY_VALUE_SET.has(String(fallback || '').trim().toLowerCase())
+        ? String(fallback || '').trim().toLowerCase()
+        : DEFAULT_MAIL163_BULK_CATEGORY;
+    }
+
     function getAccountStatus(account) {
-      const normalized = String(account?.status || '').trim().toLowerCase();
-      return MAIL163_FILTER_VALUES.has(normalized) && normalized !== 'all'
-        ? normalized
-        : 'idle';
+      return normalizeCategory(account?.status, 'idle');
+    }
+
+    function getCategoryLabel(value) {
+      return MAIL163_FILTER_LABELS[normalizeCategory(value)] || MAIL163_FILTER_LABELS.idle;
+    }
+
+    function getSelectedBulkCategory() {
+      return normalizeCategory(dom.selectMail163BulkCategory?.value, DEFAULT_MAIL163_BULK_CATEGORY);
+    }
+
+    function getBulkCategoryActionText(count) {
+      const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+      return normalizedCount > 0 ? `移动当前筛选（${normalizedCount}）` : '移动当前筛选';
+    }
+
+    function buildCategoryOptionsMarkup(selectedCategory) {
+      const normalizedSelectedCategory = normalizeCategory(selectedCategory, DEFAULT_MAIL163_BULK_CATEGORY);
+      return MAIL163_CATEGORY_VALUES.map((category) => `
+        <option value="${helpers.escapeHtml(category)}"${category === normalizedSelectedCategory ? ' selected' : ''}>${helpers.escapeHtml(getCategoryLabel(category))}</option>
+      `).join('');
     }
 
     function normalizeMail163SearchText(value) {
@@ -200,6 +230,14 @@
         dom.btnBulkTestMail163Accounts.textContent = getBulkTestActionText(visibleCount);
         dom.btnBulkTestMail163Accounts.disabled = visibleCount === 0 || actionInFlight;
       }
+      if (dom.selectMail163BulkCategory) {
+        dom.selectMail163BulkCategory.value = getSelectedBulkCategory();
+        dom.selectMail163BulkCategory.disabled = visibleCount === 0 || actionInFlight;
+      }
+      if (dom.btnApplyMail163BulkCategory) {
+        dom.btnApplyMail163BulkCategory.textContent = getBulkCategoryActionText(visibleCount);
+        dom.btnApplyMail163BulkCategory.disabled = visibleCount === 0 || actionInFlight;
+      }
       if (dom.mail163ListShell) {
         dom.mail163ListShell.classList.toggle('is-expanded', listExpanded);
         dom.mail163ListShell.classList.toggle('is-collapsed', !listExpanded);
@@ -284,18 +322,7 @@
     }
 
     function getStatusLabel(account) {
-      switch (getAccountStatus(account)) {
-        case 'running':
-          return '执行中';
-        case 'success':
-          return '成功';
-        case 'failed':
-          return '失败';
-        case 'stopped':
-          return '已停止';
-        default:
-          return '未执行';
-      }
+      return getCategoryLabel(getAccountStatus(account));
     }
 
     function getStatusClass(account) {
@@ -501,6 +528,14 @@
           const quickStatusButton = quickStatusAction
             ? `<button class="${helpers.escapeHtml(quickStatusAction.buttonClass)}" type="button" data-account-action="${helpers.escapeHtml(quickStatusAction.action)}" data-account-id="${helpers.escapeHtml(account.id)}">${helpers.escapeHtml(quickStatusAction.label)}</button>`
             : '';
+          const categoryEditor = `
+            <div class="mail163-account-category-editor">
+              <select class="data-select mail163-account-category-select" data-account-category-select data-account-id="${helpers.escapeHtml(account.id)}" aria-label="修改 ${helpers.escapeHtml(account.email || '163 号源')} 的分类">
+                ${buildCategoryOptionsMarkup(getAccountStatus(account))}
+              </select>
+              <button class="btn btn-outline btn-sm" type="button" data-account-action="set-category" data-account-id="${helpers.escapeHtml(account.id)}">改分类</button>
+            </div>
+          `;
           return `
         <div class="hotmail-account-item${account.id === currentId ? ' is-current' : ''}">
           <div class="hotmail-account-top">
@@ -529,6 +564,7 @@
             <button class="btn btn-outline btn-sm" type="button" data-account-action="select" data-account-id="${helpers.escapeHtml(account.id)}">使用此账号</button>
             <button class="btn btn-outline btn-sm" type="button" data-account-action="test" data-account-id="${helpers.escapeHtml(account.id)}">测试</button>
             ${quickStatusButton}
+            ${categoryEditor}
             <button class="btn btn-primary btn-sm" type="button" data-account-action="retry" data-account-id="${helpers.escapeHtml(account.id)}">重试</button>
             <button class="btn btn-ghost btn-sm" type="button" data-account-action="delete" data-account-id="${helpers.escapeHtml(account.id)}">删除</button>
           </div>
@@ -716,6 +752,88 @@
       return response.account;
     }
 
+    function buildMail163CategoryUpdates(targetCategory) {
+      const normalizedCategory = normalizeCategory(targetCategory, DEFAULT_MAIL163_BULK_CATEGORY);
+      const now = Date.now();
+      switch (normalizedCategory) {
+        case 'success':
+          return {
+            status: 'success',
+            success: true,
+            used: true,
+            disabled: false,
+            lastError: '',
+            lastResultAt: now,
+            lastUsedAt: now,
+          };
+        case 'failed':
+          return {
+            status: 'failed',
+            success: false,
+            used: false,
+            disabled: false,
+            lastError: '手动移动到失败分类',
+            lastResultAt: now,
+          };
+        case 'stopped':
+          return {
+            status: 'stopped',
+            success: false,
+            used: false,
+            disabled: false,
+            lastError: '手动移动到已停止分类',
+            lastResultAt: now,
+          };
+        case 'running':
+          return {
+            status: 'running',
+            success: false,
+            used: false,
+            disabled: false,
+            lastError: '',
+            lastResultAt: 0,
+          };
+        default:
+          return {
+            status: 'idle',
+            success: false,
+            used: false,
+            disabled: false,
+            lastError: '',
+            lastResultAt: 0,
+          };
+      }
+    }
+
+    async function updateMail163AccountCategory(account, targetCategory) {
+      if (!account?.id) {
+        throw new Error('未找到需要修改分类的 163 号源。');
+      }
+
+      const normalizedTargetCategory = normalizeCategory(targetCategory, getAccountStatus(account));
+      if (getAccountStatus(account) === normalizedTargetCategory) {
+        return {
+          changed: false,
+          account,
+          targetCategory: normalizedTargetCategory,
+        };
+      }
+
+      const nextAccount = await patchMail163AccountFromSidepanel(
+        account.id,
+        buildMail163CategoryUpdates(normalizedTargetCategory)
+      );
+      applyMail163AccountMutation(nextAccount, {
+        preserveCurrentSelection: true,
+        syncEmailWhenSelected: true,
+      });
+      return {
+        changed: true,
+        account: nextAccount,
+        targetCategory: normalizedTargetCategory,
+      };
+    }
+
     async function handleBulkTestMail163Accounts() {
       if (actionInFlight) return;
 
@@ -801,6 +919,69 @@
       }
     }
 
+    async function handleBulkMoveMail163Accounts() {
+      if (actionInFlight) return;
+
+      const accounts = getFilteredMail163Accounts();
+      if (!accounts.length) {
+        helpers.showToast('当前筛选结果没有可移动分类的 163 号源。', 'warn');
+        return;
+      }
+
+      const targetCategory = getSelectedBulkCategory();
+      const originalButtonText = String(dom.btnApplyMail163BulkCategory?.textContent || '');
+      const summary = {
+        total: accounts.length,
+        moved: 0,
+        skipped: 0,
+        failed: 0,
+      };
+
+      actionInFlight = true;
+      updateMail163ListViewport(state.getLatestState());
+      if (dom.btnApplyMail163BulkCategory) {
+        dom.btnApplyMail163BulkCategory.textContent = `批量移动中（0/${accounts.length}）`;
+      }
+
+      try {
+        for (let index = 0; index < accounts.length; index += 1) {
+          const account = accounts[index];
+          if (dom.btnApplyMail163BulkCategory) {
+            dom.btnApplyMail163BulkCategory.textContent = `批量移动中（${index + 1}/${accounts.length}）`;
+          }
+
+          try {
+            const result = await updateMail163AccountCategory(account, targetCategory);
+            if (result.changed) {
+              summary.moved += 1;
+            } else {
+              summary.skipped += 1;
+            }
+          } catch {
+            summary.failed += 1;
+          }
+
+          if (dom.btnApplyMail163BulkCategory) {
+            dom.btnApplyMail163BulkCategory.textContent = `批量移动中（${index + 1}/${accounts.length}）`;
+          }
+        }
+
+        const skippedText = summary.skipped > 0 ? `，跳过 ${summary.skipped} 条已在当前分类` : '';
+        const failedText = summary.failed > 0 ? `，失败 ${summary.failed} 条` : '';
+        helpers.showToast(
+          `批量改分类完成：共 ${summary.total} 条，已移动 ${summary.moved} 条到${getCategoryLabel(targetCategory)}${skippedText}${failedText}`,
+          summary.failed > 0 ? 'warn' : 'success',
+          3200
+        );
+      } finally {
+        actionInFlight = false;
+        if (dom.btnApplyMail163BulkCategory) {
+          dom.btnApplyMail163BulkCategory.textContent = originalButtonText || getBulkCategoryActionText(getFilteredMail163Accounts().length);
+        }
+        renderMail163Accounts();
+      }
+    }
+
     async function deleteAllMail163Accounts() {
       const accounts = getMail163Accounts();
       if (!accounts.length) {
@@ -837,6 +1018,11 @@
       }
       renderMail163Accounts();
       helpers.showToast(`已删除全部 ${response.deletedCount || 0} 个 163 号源`, 'success', 2200);
+    }
+
+    function getTargetCategoryFromActionButton(actionButton, fallbackCategory) {
+      const selectElement = actionButton?.parentElement?.querySelector?.('[data-account-category-select]');
+      return normalizeCategory(selectElement?.value, fallbackCategory);
     }
 
     async function handleAccountListClick(event) {
@@ -898,6 +1084,22 @@
             action === 'mark-success'
               ? `已将 163 号源标记为成功：${response.account.email}`
               : `已将 163 号源标记为失败：${response.account.email}`,
+            'success',
+            2200
+          );
+          return;
+        }
+
+        if (action === 'set-category') {
+          const targetCategory = getTargetCategoryFromActionButton(actionButton, getAccountStatus(targetAccount));
+          const result = await updateMail163AccountCategory(targetAccount, targetCategory);
+          if (!result.changed) {
+            helpers.showToast(`163 号源已在${getCategoryLabel(targetCategory)}分类：${targetAccount?.email || accountId}`, 'warn', 1800);
+            return;
+          }
+
+          helpers.showToast(
+            `已将 163 号源移动到${getCategoryLabel(targetCategory)}：${result.account.email}`,
             'success',
             2200
           );
@@ -1039,6 +1241,18 @@
           await handleBulkTestMail163Accounts();
         } catch (err) {
           helpers.showToast(`批量测试失败：${err.message}`, 'error');
+        }
+      });
+
+      dom.selectMail163BulkCategory?.addEventListener('change', () => {
+        dom.selectMail163BulkCategory.value = getSelectedBulkCategory();
+      });
+
+      dom.btnApplyMail163BulkCategory?.addEventListener('click', async () => {
+        try {
+          await handleBulkMoveMail163Accounts();
+        } catch (err) {
+          helpers.showToast(`批量改分类失败：${err.message}`, 'error');
         }
       });
 

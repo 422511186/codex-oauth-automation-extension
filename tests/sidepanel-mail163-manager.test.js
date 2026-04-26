@@ -102,6 +102,17 @@ function createFilterButton(filterValue, label) {
   return button;
 }
 
+function createSelectStub(value = '') {
+  return {
+    value,
+    disabled: false,
+    listeners: {},
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+  };
+}
+
 function loadMail163ManagerApi() {
   const source = fs.readFileSync('sidepanel/mail-163-manager.js', 'utf8');
   const windowObject = {
@@ -131,11 +142,17 @@ test('sidepanel loads mail163 manager before sidepanel bootstrap', () => {
   assert.notEqual(mail163ManagerIndex, -1);
   assert.notEqual(sidepanelIndex, -1);
   assert.match(html, /id="input-mail163-search"/);
+  assert.match(html, /id="select-mail163-bulk-category"/);
+  assert.match(html, /id="btn-apply-mail163-bulk-category"/);
   assert.match(html, /id="btn-bulk-test-mail163-accounts"/);
   assert.match(sidepanelSource, /const inputMail163Search = document\.getElementById\('input-mail163-search'\);/);
+  assert.match(sidepanelSource, /const selectMail163BulkCategory = document\.getElementById\('select-mail163-bulk-category'\);/);
+  assert.match(sidepanelSource, /const btnApplyMail163BulkCategory = document\.getElementById\('btn-apply-mail163-bulk-category'\);/);
   assert.match(sidepanelSource, /const btnBulkTestMail163Accounts = document\.getElementById\('btn-bulk-test-mail163-accounts'\);/);
+  assert.match(sidepanelSource, /btnApplyMail163BulkCategory,/);
   assert.match(sidepanelSource, /btnBulkTestMail163Accounts,/);
   assert.match(sidepanelSource, /inputMail163Search,/);
+  assert.match(sidepanelSource, /selectMail163BulkCategory,/);
   assert.ok(helperIndex < mail163ManagerIndex);
   assert.ok(mail163ManagerIndex < sidepanelIndex);
 });
@@ -846,6 +863,192 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
   assert.equal(stateStore.mail163Accounts[2].lastError, '手动标记为失败');
   assert.equal(inputEmail.value, 'success-1@163.com');
   assert.equal(toasts.at(-1)?.level, 'success');
+});
+
+test('mail163 manager bulk moves filtered accounts and supports single-item category changes', async () => {
+  const api = loadMail163ManagerApi();
+  const handlers = {};
+  const messages = [];
+  const toasts = [];
+  const btnApplyMail163BulkCategory = createButtonStub();
+  const selectMail163BulkCategory = createSelectStub('failed');
+  const inputMail163Search = createSelectStub('');
+  const filterIdleButton = createFilterButton('idle', '未执行');
+  const filterAllButton = createFilterButton('all', '全部');
+  const mail163AccountsList = {
+    innerHTML: '',
+    addEventListener(type, handler) {
+      if (type === 'click') handlers.listClick = handler;
+    },
+  };
+  const stateStore = {
+    currentMail163AccountId: 'failed-1',
+    email: 'failed-1@163.com',
+    mail163Accounts: [
+      {
+        id: 'idle-move-1',
+        email: 'move-a@163.com',
+        authCode: 'auth-a',
+        status: 'idle',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'idle-move-2',
+        email: 'move-b@163.com',
+        authCode: 'auth-b',
+        status: 'idle',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 1,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'idle-stay',
+        email: 'stay@163.com',
+        authCode: 'auth-stay',
+        status: 'idle',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'failed-1',
+        email: 'failed-1@163.com',
+        authCode: 'auth-failed',
+        status: 'failed',
+        success: false,
+        used: false,
+        disabled: false,
+        retryCount: 2,
+        lastError: 'old error',
+        lastResultAt: 100,
+        lastUsedAt: 0,
+      },
+    ],
+  };
+
+  const manager = api.createMail163Manager({
+    state: {
+      getLatestState: () => stateStore,
+      syncLatestState: (updates) => {
+        Object.assign(stateStore, updates);
+      },
+    },
+    dom: {
+      btnAddMail163Account: createButtonStub(),
+      btnApplyMail163BulkCategory,
+      btnBulkTestMail163Accounts: createButtonStub(),
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnImportMail163Accounts: createButtonStub(),
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
+      inputEmail: { value: 'failed-1@163.com' },
+      inputMail163Search,
+      inputMail163AuthCode: { value: '' },
+      inputMail163Email: { value: '', focus() {} },
+      inputMail163Import: { value: '' },
+      inputMail163ImportFile: { addEventListener() {} },
+      mail163AccountsList,
+      mail163FilterButtons: [
+        filterAllButton,
+        filterIdleButton,
+        createFilterButton('failed', '失败'),
+      ],
+      mail163FormShell: { hidden: true },
+      mail163ListShell: { classList: createClassListStub() },
+      selectMail163BulkCategory,
+      selectMailProvider: { value: '163' },
+    },
+    helpers: {
+      getMail163Accounts: (currentState = stateStore) => currentState.mail163Accounts,
+      escapeHtml: (value) => String(value || ''),
+      showToast(message, level) {
+        toasts.push({ message, level });
+      },
+      openConfirmModal: async () => true,
+      copyTextToClipboard: async () => {},
+      downloadTextFile() {},
+    },
+    runtime: {
+      sendMessage: async (message) => {
+        messages.push(message);
+        if (message.type !== 'PATCH_MAIL163_ACCOUNT') {
+          throw new Error(`unexpected message type: ${message.type}`);
+        }
+        const sourceAccount = stateStore.mail163Accounts.find((account) => account.id === message.payload.accountId);
+        return {
+          ok: true,
+          account: {
+            ...sourceAccount,
+            ...message.payload.updates,
+          },
+        };
+      },
+    },
+    constants: {
+      copyIcon: '',
+      displayTimeZone: 'Asia/Shanghai',
+      expandedStorageKey: 'multipage-mail163-list-expanded',
+    },
+    mail163Utils: {},
+  });
+
+  manager.renderMail163Accounts();
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="set-category"/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-category-select/);
+
+  manager.bindMail163Events();
+  filterIdleButton.click();
+  inputMail163Search.value = 'move';
+  inputMail163Search.listeners.input({ target: inputMail163Search });
+
+  assert.match(btnApplyMail163BulkCategory.textContent, /移动当前筛选（2）/);
+  await btnApplyMail163BulkCategory.listeners.click();
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-1')?.status, 'failed');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-2')?.status, 'failed');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-stay')?.status, 'idle');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-1')?.lastError, '手动移动到失败分类');
+  assert.match(toasts.at(-1)?.message || '', /已移动 2 条到失败/);
+
+  await handlers.listClick({
+    target: {
+      closest() {
+        return {
+          dataset: {
+            accountAction: 'set-category',
+            accountId: 'failed-1',
+          },
+          disabled: false,
+          parentElement: {
+            querySelector() {
+              return { value: 'idle' };
+            },
+          },
+        };
+      },
+    },
+  });
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-1')?.status, 'idle');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-1')?.lastError, '');
+  assert.equal(messages.filter((message) => message.type === 'PATCH_MAIL163_ACCOUNT').length, 3);
+  assert.match(toasts.at(-1)?.message || '', /移动到未执行/);
 });
 
 test('mail163 manager bulk tests current filter and moves accounts between failed, stopped, and idle lists', async () => {

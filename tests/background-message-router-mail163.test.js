@@ -114,3 +114,61 @@ test('message router PATCH_MAIL163_ACCOUNT forwards account updates', async () =
   assert.equal(response.account.success, true);
   assert.equal(response.account.used, true);
 });
+
+test('message router AUTO_RUN forwards mail163 start step and persists it when provided', async () => {
+  const events = {
+    persisted: [],
+    states: [],
+    starts: [],
+  };
+
+  const router = api.createMessageRouter({
+    clearStopRequest: () => {},
+    getPendingAutoRunTimerPlan: () => null,
+    getState: async () => ({
+      stepStatuses: {},
+      mailProvider: '163',
+    }),
+    normalizeRunCount: (value) => Number(value) || 1,
+    setPersistentSettings: async (updates) => {
+      events.persisted.push(updates);
+    },
+    setState: async (updates) => {
+      events.states.push(updates);
+    },
+    startAutoRunLoop: (totalRuns, options) => {
+      events.starts.push({ totalRuns, options });
+    },
+  });
+
+  const response = await router.handleMessage({
+    type: 'AUTO_RUN',
+    payload: {
+      totalRuns: 3,
+      autoRunSkipFailures: true,
+      mode: 'restart',
+      mail163AutoRunStartStep: 6,
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.deepStrictEqual(events.persisted, [
+    { mail163AutoRunStartStep: 6 },
+  ]);
+  assert.deepStrictEqual(events.states, [
+    {
+      autoRunSkipFailures: true,
+      mail163AutoRunStartStep: 6,
+    },
+  ]);
+  assert.deepStrictEqual(events.starts, [
+    {
+      totalRuns: 3,
+      options: {
+        autoRunSkipFailures: true,
+        mode: 'restart',
+        mail163AutoRunStartStep: 6,
+      },
+    },
+  ]);
+});

@@ -362,6 +362,17 @@
           </div>
         </div>
       </div>
+      <div class="data-row" id="row-mail163-auto-run-start-step" style="display:none;">
+        <span class="data-label">163 起点</span>
+        <div class="data-inline">
+          <select id="select-mail163-auto-run-start-step" class="data-select" title="163 批量自动运行时，每轮 fresh round 的默认开始步骤">
+            <option value="1">步骤 1：完整流程</option>
+            <option value="2">步骤 2：跳过打开官网</option>
+            <option value="6">步骤 6：前 1~5 步已完成</option>
+            <option value="7">步骤 7：前 1~6 步已完成</option>
+          </select>
+        </div>
+      </div>
       <div class="data-row" id="row-account-run-history-text-enabled">
         <span class="data-label">本地同步</span>
         <div class="data-inline setting-pair">
@@ -501,6 +512,19 @@
           type="text"
           placeholder="搜索邮箱关键词 / 失败原因"
         />
+      </div>
+      <div class="data-row mail163-bulk-category-row">
+        <span class="data-label">批量改类</span>
+        <div class="data-inline mail163-bulk-category-inline">
+          <select id="select-mail163-bulk-category" class="data-select mail163-bulk-category-select" title="将当前筛选结果批量移动到指定分类">
+            <option value="idle">未执行</option>
+            <option value="running">执行中</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+            <option value="stopped">已停止</option>
+          </select>
+          <button id="btn-apply-mail163-bulk-category" class="btn btn-outline btn-sm" type="button">移动当前筛选</button>
+        </div>
       </div>
       <div id="mail163-form-shell" class="account-pool-form-shell" hidden>
         <div class="data-row">

@@ -6,6 +6,134 @@ const source = fs.readFileSync('background/auto-run-controller.js', 'utf8');
 const globalScope = {};
 const api = new Function('self', `${source}; return self.MultiPageBackgroundAutoRunController;`)(globalScope);
 
+test('auto-run controller starts fresh mail163 rounds from the configured start step', async () => {
+  const events = {
+    startSteps: [],
+  };
+
+  let currentState = {
+    stepStatuses: {},
+    mailProvider: '163',
+    mail163AutoRunStartStep: 6,
+    autoRunSkipFailures: false,
+    autoRunFallbackThreadIntervalMinutes: 0,
+    autoRunDelayEnabled: false,
+    autoRunDelayMinutes: 30,
+    autoStepDelaySeconds: null,
+    mail163Accounts: [],
+    autoRunRoundSummaries: [],
+    tabRegistry: {},
+    sourceLastUrls: {},
+  };
+
+  const runtime = {
+    state: {
+      autoRunActive: false,
+      autoRunCurrentRun: 0,
+      autoRunTotalRuns: 1,
+      autoRunAttemptRun: 0,
+      autoRunSessionId: 0,
+    },
+    get() {
+      return { ...this.state };
+    },
+    set(updates = {}) {
+      this.state = { ...this.state, ...updates };
+    },
+  };
+
+  let sessionSeed = 0;
+
+  const controller = api.createAutoRunController({
+    addLog: async () => {},
+    appendAccountRunRecord: async () => null,
+    AUTO_RUN_MAX_RETRIES_PER_ROUND: 3,
+    AUTO_RUN_RETRY_DELAY_MS: 3000,
+    AUTO_RUN_TIMER_KIND_BEFORE_RETRY: 'before_retry',
+    AUTO_RUN_TIMER_KIND_BETWEEN_ROUNDS: 'between_rounds',
+    broadcastAutoRunStatus: async () => {},
+    broadcastStopToContentScripts: async () => {},
+    cancelPendingCommands: () => {},
+    clearStopRequest: () => {},
+    createAutoRunSessionId: () => {
+      sessionSeed += 1;
+      return sessionSeed;
+    },
+    getAutoRunStatusPayload: () => ({}),
+    getCurrentMail163Account: () => null,
+    getErrorMessage: (error) => error?.message || String(error || ''),
+    getFirstUnfinishedStep: () => 1,
+    getPendingAutoRunTimerPlan: () => null,
+    getRunningSteps: () => [],
+    getState: async () => ({
+      ...currentState,
+      stepStatuses: { ...(currentState.stepStatuses || {}) },
+      tabRegistry: { ...(currentState.tabRegistry || {}) },
+      sourceLastUrls: { ...(currentState.sourceLastUrls || {}) },
+    }),
+    getStopRequested: () => false,
+    hasSavedProgress: () => false,
+    isAddPhoneAuthFailure: () => false,
+    isMail163Provider: (state) => String(state?.mailProvider || '') === '163',
+    isMail163LoginAuthFailure: () => false,
+    isRetryableAutoRunTabGoneError: () => false,
+    isRestartCurrentAttemptError: () => false,
+    isSignupUserAlreadyExistsFailure: () => false,
+    isStopError: (error) => (error?.message || String(error || '')) === '流程已被用户停止。',
+    launchAutoRunTimerPlan: async () => false,
+    normalizeMail163AutoRunStartStep: (value) => {
+      const numeric = Math.floor(Number(value));
+      return [1, 2, 6, 7].includes(numeric) ? numeric : 1;
+    },
+    normalizeAutoRunFallbackThreadIntervalMinutes: (value) => Math.max(0, Math.floor(Number(value) || 0)),
+    patchMail163Account: async () => null,
+    persistAutoRunTimerPlan: async () => ({}),
+    resetState: async () => {
+      currentState = {
+        ...currentState,
+        stepStatuses: {},
+        tabRegistry: {},
+        sourceLastUrls: {},
+      };
+    },
+    runAutoSequenceFromStep: async (startStep) => {
+      events.startSteps.push(startStep);
+    },
+    runtime,
+    setState: async (updates = {}) => {
+      currentState = {
+        ...currentState,
+        ...updates,
+        stepStatuses: updates.stepStatuses ? { ...updates.stepStatuses } : currentState.stepStatuses,
+        tabRegistry: updates.tabRegistry ? { ...updates.tabRegistry } : currentState.tabRegistry,
+        sourceLastUrls: updates.sourceLastUrls ? { ...updates.sourceLastUrls } : currentState.sourceLastUrls,
+      };
+    },
+    sleepWithStop: async () => {},
+    throwIfAutoRunSessionStopped: (sessionId) => {
+      if (sessionId && sessionId !== runtime.state.autoRunSessionId) {
+        throw new Error('流程已被用户停止。');
+      }
+    },
+    waitForRunningStepsToFinish: async () => currentState,
+    chrome: {
+      runtime: {
+        sendMessage() {
+          return Promise.resolve();
+        },
+      },
+    },
+  });
+
+  await controller.autoRunLoop(2, {
+    autoRunSkipFailures: false,
+    mode: 'restart',
+    mail163AutoRunStartStep: 6,
+  });
+
+  assert.deepStrictEqual(events.startSteps, [6, 6]);
+});
+
 test('auto-run controller skips add-phone failures to the next round instead of stopping when auto retry is enabled', async () => {
   const events = {
     logs: [],

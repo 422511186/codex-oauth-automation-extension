@@ -62,6 +62,7 @@ const inputAutoDelayEnabled = { checked: false };
 const inputAutoDelayMinutes = { value: '30' };
 const btnAutoRun = { disabled: false, innerHTML: '' };
 const inputRunCount = { disabled: false };
+const selectMailProvider = { value: '163' };
 const chrome = {
   runtime: {
     async sendMessage(message) {
@@ -81,6 +82,7 @@ function shouldOfferAutoModeChoice() { return false; }
 async function openAutoStartChoiceDialog() { throw new Error('should not be called'); }
 function getFirstUnfinishedStep() { return 1; }
 function getRunningSteps() { return []; }
+function getSelectedMail163AutoRunStartStep() { return 6; }
 function shouldWarnAutoRunFallbackRisk() { return false; }
 function isAutoRunFallbackRiskPromptDismissed() { return false; }
 async function openAutoRunFallbackRiskConfirmModal() { throw new Error('should not be called'); }
@@ -111,6 +113,7 @@ test('startAutoRunFromCurrentSettings refreshes contribution content hint before
     ['refresh', 'send']
   );
   assert.equal(api.getEvents()[1].message.type, 'AUTO_RUN');
+  assert.equal(api.getEvents()[1].message.payload.mail163AutoRunStartStep, 6);
 });
 
 test('startAutoRunFromCurrentSettings continues auto run when contribution content refresh fails', async () => {
@@ -128,4 +131,5 @@ test('startAutoRunFromCurrentSettings continues auto run when contribution conte
   );
   assert.match(String(events[1].args[0]), /Failed to refresh contribution content hint before auto run/);
   assert.equal(events[2].message.type, 'AUTO_RUN');
+  assert.equal(events[2].message.payload.mail163AutoRunStartStep, 6);
 });

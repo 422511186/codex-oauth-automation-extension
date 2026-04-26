@@ -1,6 +1,19 @@
 ﻿﻿(function attachBackgroundMessageRouter(root, factory) {
   root.MultiPageBackgroundMessageRouter = factory();
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundMessageRouterModule() {
+  const DEFAULT_MAIL163_AUTO_RUN_START_STEP = 1;
+  const MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES = new Set([1, 2, 6, 7]);
+
+  function normalizeMail163AutoRunStartStepValue(value, fallback = DEFAULT_MAIL163_AUTO_RUN_START_STEP) {
+    const normalizedFallback = MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES.has(Number(fallback))
+      ? Number(fallback)
+      : DEFAULT_MAIL163_AUTO_RUN_START_STEP;
+    const numeric = Math.floor(Number(value));
+    return MAIL163_AUTO_RUN_START_STEP_ALLOWED_VALUES.has(numeric)
+      ? numeric
+      : normalizedFallback;
+  }
+
   function createMessageRouter(deps = {}) {
     const {
       addLog,
@@ -469,8 +482,22 @@
           const totalRuns = normalizeRunCount(message.payload?.totalRuns || 1);
           const autoRunSkipFailures = Boolean(message.payload?.autoRunSkipFailures);
           const mode = message.payload?.mode === 'continue' ? 'continue' : 'restart';
-          await setState({ autoRunSkipFailures });
-          startAutoRunLoop(totalRuns, { autoRunSkipFailures, mode });
+          const hasMail163AutoRunStartStep = message.payload?.mail163AutoRunStartStep !== undefined;
+          const mail163AutoRunStartStep = hasMail163AutoRunStartStep
+            ? normalizeMail163AutoRunStartStepValue(message.payload?.mail163AutoRunStartStep)
+            : undefined;
+          if (hasMail163AutoRunStartStep && typeof setPersistentSettings === 'function') {
+            await setPersistentSettings({ mail163AutoRunStartStep });
+          }
+          await setState({
+            autoRunSkipFailures,
+            ...(hasMail163AutoRunStartStep ? { mail163AutoRunStartStep } : {}),
+          });
+          startAutoRunLoop(totalRuns, {
+            autoRunSkipFailures,
+            mode,
+            ...(hasMail163AutoRunStartStep ? { mail163AutoRunStartStep } : {}),
+          });
           return { ok: true };
         }
 
@@ -488,10 +515,21 @@
             }
           }
           const totalRuns = normalizeRunCount(message.payload?.totalRuns || 1);
+          const hasMail163AutoRunStartStep = message.payload?.mail163AutoRunStartStep !== undefined;
+          const mail163AutoRunStartStep = hasMail163AutoRunStartStep
+            ? normalizeMail163AutoRunStartStepValue(message.payload?.mail163AutoRunStartStep)
+            : undefined;
+          if (hasMail163AutoRunStartStep && typeof setPersistentSettings === 'function') {
+            await setPersistentSettings({ mail163AutoRunStartStep });
+          }
+          if (hasMail163AutoRunStartStep && typeof setState === 'function') {
+            await setState({ mail163AutoRunStartStep });
+          }
           return await scheduleAutoRun(totalRuns, {
             delayMinutes: message.payload?.delayMinutes,
             autoRunSkipFailures: Boolean(message.payload?.autoRunSkipFailures),
             mode: message.payload?.mode,
+            ...(hasMail163AutoRunStartStep ? { mail163AutoRunStartStep } : {}),
           });
         }
 
