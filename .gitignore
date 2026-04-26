@@ -12,3 +12,4 @@
 .omx/
 /node_modules
 scripts/build-crx.sh
+.codex
