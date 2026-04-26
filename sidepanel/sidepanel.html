@@ -494,8 +494,8 @@
         <input type="text" id="input-mail163-helper-base-url" class="data-input mono" placeholder="http://127.0.0.1:17374" />
       </div>
       <div class="data-row mail163-filter-row">
-        <span class="data-label">分类过滤</span>
-        <div id="mail163-filter-group" class="choice-group mail163-filter-group" role="group" aria-label="163 号源分类过滤">
+        <span class="data-label">状态过滤</span>
+        <div id="mail163-filter-group" class="choice-group mail163-filter-group" role="group" aria-label="163 号源状态过滤">
           <button type="button" class="choice-btn is-active" data-mail163-filter="all">全部</button>
           <button type="button" class="choice-btn" data-mail163-filter="idle">未执行</button>
           <button type="button" class="choice-btn" data-mail163-filter="running">执行中</button>
@@ -505,18 +505,33 @@
         </div>
       </div>
       <div class="data-row">
+        <span class="data-label">分类过滤</span>
+        <div class="data-inline mail163-custom-category-inline">
+          <select id="select-mail163-custom-category-filter" class="data-select mail163-custom-category-filter" title="按自定义分类筛选 163 号源">
+            <option value="__all__">全部分类</option>
+            <option value="__uncategorized__">未分类</option>
+          </select>
+        </div>
+      </div>
+      <div class="data-row">
         <span class="data-label">搜索</span>
-        <input
-          id="input-mail163-search"
-          class="data-input mail163-search"
-          type="text"
-          placeholder="搜索邮箱关键词 / 失败原因"
-        />
+        <div class="data-inline mail163-search-inline">
+          <input
+            id="input-mail163-search"
+            class="data-input mail163-search"
+            type="text"
+            placeholder="搜索邮箱关键词 / 失败原因"
+          />
+          <label class="mail163-search-toggle" for="input-mail163-search-exclude" title="勾选后只显示不包含当前关键词的号源">
+            <input id="input-mail163-search-exclude" type="checkbox" />
+            <span>反向过滤</span>
+          </label>
+        </div>
       </div>
       <div class="data-row mail163-bulk-category-row">
-        <span class="data-label">批量改类</span>
+        <span class="data-label">批量状态</span>
         <div class="data-inline mail163-bulk-category-inline">
-          <select id="select-mail163-bulk-category" class="data-select mail163-bulk-category-select" title="将当前筛选结果批量移动到指定分类">
+          <select id="select-mail163-bulk-category" class="data-select mail163-bulk-category-select" title="将当前筛选结果批量移动到指定状态">
             <option value="idle">未执行</option>
             <option value="running">执行中</option>
             <option value="success">成功</option>
@@ -525,6 +540,21 @@
           </select>
           <button id="btn-apply-mail163-bulk-category" class="btn btn-outline btn-sm" type="button">移动当前筛选</button>
         </div>
+      </div>
+      <div class="data-row mail163-custom-category-row">
+        <span class="data-label">批量分类</span>
+        <div class="data-inline mail163-custom-category-inline">
+          <input
+            id="input-mail163-bulk-custom-category"
+            class="data-input mail163-custom-category-input"
+            type="text"
+            list="mail163-custom-category-options"
+            placeholder="输入分类名，留空则清空分类"
+            title="为当前筛选结果批量设置自定义分类"
+          />
+          <button id="btn-apply-mail163-custom-category" class="btn btn-outline btn-sm" type="button">设置当前筛选</button>
+        </div>
+        <datalist id="mail163-custom-category-options"></datalist>
       </div>
       <div id="mail163-form-shell" class="account-pool-form-shell" hidden>
         <div class="data-row">

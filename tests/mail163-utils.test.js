@@ -79,3 +79,16 @@ test('pickMail163AccountForRun skips failed and stopped accounts', () => {
 
   assert.equal(picked.id, 'a');
 });
+
+test('normalizeMail163Account preserves trimmed custom category', () => {
+  const normalized = utils.normalizeMail163Account({
+    id: 'cat-1',
+    email: 'demo@163.com',
+    authCode: 'authcode',
+    category: '  高权重账号  ',
+    status: 'idle',
+    success: false,
+  });
+
+  assert.equal(normalized.category, '高权重账号');
+});

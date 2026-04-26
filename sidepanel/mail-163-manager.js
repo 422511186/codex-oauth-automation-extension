@@ -1,8 +1,8 @@
 (function attachSidepanelMail163Manager(globalScope) {
-  const MAIL163_CATEGORY_VALUES = ['idle', 'running', 'success', 'failed', 'stopped'];
-  const MAIL163_FILTER_VALUES = new Set(['all', ...MAIL163_CATEGORY_VALUES]);
-  const MAIL163_CATEGORY_VALUE_SET = new Set(MAIL163_CATEGORY_VALUES);
-  const MAIL163_FILTER_LABELS = {
+  const MAIL163_STATUS_VALUES = ['idle', 'running', 'success', 'failed', 'stopped'];
+  const MAIL163_STATUS_FILTER_VALUES = new Set(['all', ...MAIL163_STATUS_VALUES]);
+  const MAIL163_STATUS_VALUE_SET = new Set(MAIL163_STATUS_VALUES);
+  const MAIL163_STATUS_LABELS = {
     all: '全部',
     idle: '未执行',
     running: '执行中',
@@ -10,9 +10,11 @@
     failed: '失败',
     stopped: '已停止',
   };
+  const MAIL163_CUSTOM_CATEGORY_FILTER_ALL = '__all__';
+  const MAIL163_CUSTOM_CATEGORY_FILTER_UNCATEGORIZED = '__uncategorized__';
   const MAIL163_BACKUP_SCHEMA_VERSION = 1;
   const MAIL163_BACKUP_TYPE = 'mail163-account-pool';
-  const DEFAULT_MAIL163_BULK_CATEGORY = 'idle';
+  const DEFAULT_MAIL163_BULK_STATUS = 'idle';
 
   function createMail163Manager(context = {}) {
     const {
@@ -28,11 +30,16 @@
     const displayTimeZone = constants.displayTimeZone || 'Asia/Shanghai';
     const copyIcon = constants.copyIcon || '';
     const createAccountPoolFormController = globalScope.SidepanelAccountPoolUi?.createAccountPoolFormController;
+    const normalizeMail163CategoryValue = typeof mail163Utils.normalizeMail163Category === 'function'
+      ? mail163Utils.normalizeMail163Category
+      : (value) => String(value || '').trim();
 
     let actionInFlight = false;
     let listExpanded = false;
     let activeFilter = 'all';
+    let activeCustomCategoryFilter = MAIL163_CUSTOM_CATEGORY_FILTER_ALL;
     let searchTerm = '';
+    let reverseSearch = false;
 
     function getMail163Accounts(currentState = state.getLatestState()) {
       return helpers.getMail163Accounts(currentState);
@@ -44,40 +51,64 @@
 
     function normalizeFilter(value) {
       const normalized = String(value || '').trim().toLowerCase();
-      return MAIL163_FILTER_VALUES.has(normalized) ? normalized : 'all';
+      return MAIL163_STATUS_FILTER_VALUES.has(normalized) ? normalized : 'all';
     }
 
-    function normalizeCategory(value, fallback = DEFAULT_MAIL163_BULK_CATEGORY) {
+    function normalizeStatus(value, fallback = DEFAULT_MAIL163_BULK_STATUS) {
       const normalized = String(value || '').trim().toLowerCase();
-      if (MAIL163_CATEGORY_VALUE_SET.has(normalized)) {
+      if (MAIL163_STATUS_VALUE_SET.has(normalized)) {
         return normalized;
       }
-      return MAIL163_CATEGORY_VALUE_SET.has(String(fallback || '').trim().toLowerCase())
+      return MAIL163_STATUS_VALUE_SET.has(String(fallback || '').trim().toLowerCase())
         ? String(fallback || '').trim().toLowerCase()
-        : DEFAULT_MAIL163_BULK_CATEGORY;
+        : DEFAULT_MAIL163_BULK_STATUS;
     }
 
     function getAccountStatus(account) {
-      return normalizeCategory(account?.status, 'idle');
+      return normalizeStatus(account?.status, 'idle');
     }
 
-    function getCategoryLabel(value) {
-      return MAIL163_FILTER_LABELS[normalizeCategory(value)] || MAIL163_FILTER_LABELS.idle;
+    function getStatusLabelByValue(value) {
+      return MAIL163_STATUS_LABELS[normalizeStatus(value)] || MAIL163_STATUS_LABELS.idle;
     }
 
-    function getSelectedBulkCategory() {
-      return normalizeCategory(dom.selectMail163BulkCategory?.value, DEFAULT_MAIL163_BULK_CATEGORY);
+    function normalizeCustomCategory(value) {
+      return normalizeMail163CategoryValue(value);
     }
 
-    function getBulkCategoryActionText(count) {
+    function getAccountCustomCategory(account) {
+      return normalizeCustomCategory(account?.category);
+    }
+
+    function normalizeCustomCategoryFilter(value) {
+      const normalized = String(value || '').trim();
+      if (!normalized) {
+        return MAIL163_CUSTOM_CATEGORY_FILTER_ALL;
+      }
+      if (normalized === MAIL163_CUSTOM_CATEGORY_FILTER_ALL || normalized === MAIL163_CUSTOM_CATEGORY_FILTER_UNCATEGORIZED) {
+        return normalized;
+      }
+      return normalizeCustomCategory(normalized);
+    }
+
+    function getSelectedBulkStatus() {
+      return normalizeStatus(dom.selectMail163BulkCategory?.value, DEFAULT_MAIL163_BULK_STATUS);
+    }
+
+    function getBulkStatusActionText(count) {
       const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
       return normalizedCount > 0 ? `移动当前筛选（${normalizedCount}）` : '移动当前筛选';
     }
 
-    function buildCategoryOptionsMarkup(selectedCategory) {
-      const normalizedSelectedCategory = normalizeCategory(selectedCategory, DEFAULT_MAIL163_BULK_CATEGORY);
-      return MAIL163_CATEGORY_VALUES.map((category) => `
-        <option value="${helpers.escapeHtml(category)}"${category === normalizedSelectedCategory ? ' selected' : ''}>${helpers.escapeHtml(getCategoryLabel(category))}</option>
+    function getBulkCustomCategoryActionText(count) {
+      const normalizedCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0;
+      return normalizedCount > 0 ? `设置当前筛选（${normalizedCount}）` : '设置当前筛选';
+    }
+
+    function buildStatusOptionsMarkup(selectedStatus) {
+      const normalizedSelectedStatus = normalizeStatus(selectedStatus, DEFAULT_MAIL163_BULK_STATUS);
+      return MAIL163_STATUS_VALUES.map((status) => `
+        <option value="${helpers.escapeHtml(status)}"${status === normalizedSelectedStatus ? ' selected' : ''}>${helpers.escapeHtml(getStatusLabelByValue(status))}</option>
       `).join('');
     }
 
@@ -123,17 +154,29 @@
         if (!matchesFilter) {
           return false;
         }
+        const customCategory = getAccountCustomCategory(account);
+        const matchesCustomCategory = activeCustomCategoryFilter === MAIL163_CUSTOM_CATEGORY_FILTER_ALL
+          || (
+            activeCustomCategoryFilter === MAIL163_CUSTOM_CATEGORY_FILTER_UNCATEGORIZED
+              ? !customCategory
+              : customCategory === activeCustomCategoryFilter
+          );
+        if (!matchesCustomCategory) {
+          return false;
+        }
         if (!normalizedSearchTerm) {
           return true;
         }
 
         const haystack = [
           account.email,
+          customCategory,
           account.lastError,
           getStatusLabel(account),
           account.success ? '已成功 success' : '未成功 pending',
         ].join(' ').toLowerCase();
-        return haystack.includes(normalizedSearchTerm);
+        const matchesSearch = haystack.includes(normalizedSearchTerm);
+        return reverseSearch ? !matchesSearch : matchesSearch;
       });
     }
 
@@ -153,6 +196,34 @@
         counts[getAccountStatus(account)] += 1;
       }
       return counts;
+    }
+
+    function getMail163CustomCategoryCounts(currentState = state.getLatestState()) {
+      const counts = new Map();
+      let uncategorizedCount = 0;
+      for (const account of getMail163Accounts(currentState)) {
+        const category = getAccountCustomCategory(account);
+        if (!category) {
+          uncategorizedCount += 1;
+          continue;
+        }
+        counts.set(category, (counts.get(category) || 0) + 1);
+      }
+      return {
+        counts,
+        uncategorizedCount,
+      };
+    }
+
+    function getAvailableCustomCategories(currentState = state.getLatestState()) {
+      const categories = [];
+      for (const account of getMail163Accounts(currentState)) {
+        const category = getAccountCustomCategory(account);
+        if (category && !categories.includes(category)) {
+          categories.push(category);
+        }
+      }
+      return categories.sort((left, right) => left.localeCompare(right, 'zh-CN'));
     }
 
     function getBulkActionText(count) {
@@ -195,7 +266,7 @@
         const labelBase = String(
           button?.dataset?.filterLabelBase
           || button?.textContent
-          || MAIL163_FILTER_LABELS[filterValue]
+          || MAIL163_STATUS_LABELS[filterValue]
           || ''
         ).trim();
         if (button?.dataset) {
@@ -207,6 +278,39 @@
         button.setAttribute?.('aria-pressed', String(filterValue === activeFilter));
         button.disabled = counts.all === 0 && filterValue !== 'all';
       }
+    }
+
+    function updateMail163CustomCategoryOptions(currentState = state.getLatestState()) {
+      const categories = getAvailableCustomCategories(currentState);
+      const { counts, uncategorizedCount } = getMail163CustomCategoryCounts(currentState);
+
+      if (dom.mail163CustomCategoryOptions) {
+        dom.mail163CustomCategoryOptions.innerHTML = categories
+          .map((category) => `<option value="${helpers.escapeHtml(category)}"></option>`)
+          .join('');
+      }
+
+      if (!dom.selectMail163CustomCategoryFilter) {
+        return;
+      }
+
+      const options = [
+        `<option value="${MAIL163_CUSTOM_CATEGORY_FILTER_ALL}">全部分类</option>`,
+        `<option value="${MAIL163_CUSTOM_CATEGORY_FILTER_UNCATEGORIZED}">未分类${uncategorizedCount > 0 ? `（${uncategorizedCount}）` : ''}</option>`,
+      ].concat(
+        categories.map((category) => (
+          `<option value="${helpers.escapeHtml(category)}">${helpers.escapeHtml(category)}${(counts.get(category) || 0) > 0 ? `（${counts.get(category)}）` : ''}</option>`
+        ))
+      );
+
+      dom.selectMail163CustomCategoryFilter.innerHTML = options.join('');
+      const normalizedFilter = normalizeCustomCategoryFilter(activeCustomCategoryFilter);
+      const hasCurrent = normalizedFilter === MAIL163_CUSTOM_CATEGORY_FILTER_ALL
+        || normalizedFilter === MAIL163_CUSTOM_CATEGORY_FILTER_UNCATEGORIZED
+        || categories.includes(normalizedFilter);
+      activeCustomCategoryFilter = hasCurrent ? normalizedFilter : MAIL163_CUSTOM_CATEGORY_FILTER_ALL;
+      dom.selectMail163CustomCategoryFilter.value = activeCustomCategoryFilter;
+      dom.selectMail163CustomCategoryFilter.disabled = getMail163Accounts(currentState).length === 0 || actionInFlight;
     }
 
     function updateMail163ListViewport(currentState = state.getLatestState()) {
@@ -231,12 +335,23 @@
         dom.btnBulkTestMail163Accounts.disabled = visibleCount === 0 || actionInFlight;
       }
       if (dom.selectMail163BulkCategory) {
-        dom.selectMail163BulkCategory.value = getSelectedBulkCategory();
+        dom.selectMail163BulkCategory.value = getSelectedBulkStatus();
         dom.selectMail163BulkCategory.disabled = visibleCount === 0 || actionInFlight;
       }
       if (dom.btnApplyMail163BulkCategory) {
-        dom.btnApplyMail163BulkCategory.textContent = getBulkCategoryActionText(visibleCount);
+        dom.btnApplyMail163BulkCategory.textContent = getBulkStatusActionText(visibleCount);
         dom.btnApplyMail163BulkCategory.disabled = visibleCount === 0 || actionInFlight;
+      }
+      if (dom.inputMail163BulkCustomCategory) {
+        dom.inputMail163BulkCustomCategory.disabled = actionInFlight;
+      }
+      if (dom.inputMail163SearchExclude) {
+        dom.inputMail163SearchExclude.checked = reverseSearch;
+        dom.inputMail163SearchExclude.disabled = actionInFlight;
+      }
+      if (dom.btnApplyMail163CustomCategory) {
+        dom.btnApplyMail163CustomCategory.textContent = getBulkCustomCategoryActionText(visibleCount);
+        dom.btnApplyMail163CustomCategory.disabled = visibleCount === 0 || actionInFlight;
       }
       if (dom.mail163ListShell) {
         dom.mail163ListShell.classList.toggle('is-expanded', listExpanded);
@@ -244,6 +359,7 @@
       }
 
       updateMail163FilterButtons(currentState);
+      updateMail163CustomCategoryOptions(currentState);
     }
 
     function setMail163ListExpanded(expanded, options = {}) {
@@ -322,7 +438,7 @@
     }
 
     function getStatusLabel(account) {
-      return getCategoryLabel(getAccountStatus(account));
+      return getStatusLabelByValue(getAccountStatus(account));
     }
 
     function getStatusClass(account) {
@@ -410,11 +526,13 @@
     function buildMail163BackupExportAccount(account = {}) {
       const status = getAccountStatus(account);
       const success = account.success !== undefined ? Boolean(account.success) : status === 'success';
+      const customCategory = getAccountCustomCategory(account);
 
       return {
         id: String(account.id || '').trim(),
         email: String(account.email || '').trim().toLowerCase(),
         authCode: String(account.authCode ?? account.password ?? '').trim(),
+        ...(customCategory ? { category: customCategory } : {}),
         status: success ? 'success' : status,
         success,
         used: account.used !== undefined ? Boolean(account.used) : success,
@@ -434,6 +552,7 @@
         type: MAIL163_BACKUP_TYPE,
         exportedAt: new Date().toISOString(),
         filter: activeFilter,
+        customCategoryFilter: activeCustomCategoryFilter,
         count: exportableAccounts.length,
         accounts: exportableAccounts,
       };
@@ -442,11 +561,13 @@
     function normalizeImportedMail163Account(account = {}) {
       const status = getAccountStatus(account);
       const success = account.success !== undefined ? Boolean(account.success) : status === 'success';
+      const customCategory = normalizeCustomCategory(account.category);
 
       return {
         ...(account?.id ? { id: String(account.id).trim() } : {}),
         email: String(account.email || '').trim().toLowerCase(),
         authCode: String(account.authCode ?? account.password ?? '').trim(),
+        ...(customCategory ? { category: customCategory } : {}),
         status: success ? 'success' : status,
         success,
         used: account.used !== undefined ? Boolean(account.used) : success,
@@ -528,12 +649,28 @@
           const quickStatusButton = quickStatusAction
             ? `<button class="${helpers.escapeHtml(quickStatusAction.buttonClass)}" type="button" data-account-action="${helpers.escapeHtml(quickStatusAction.action)}" data-account-id="${helpers.escapeHtml(account.id)}">${helpers.escapeHtml(quickStatusAction.label)}</button>`
             : '';
-          const categoryEditor = `
+          const statusEditor = `
             <div class="mail163-account-category-editor">
-              <select class="data-select mail163-account-category-select" data-account-category-select data-account-id="${helpers.escapeHtml(account.id)}" aria-label="修改 ${helpers.escapeHtml(account.email || '163 号源')} 的分类">
-                ${buildCategoryOptionsMarkup(getAccountStatus(account))}
+              <select class="data-select mail163-account-category-select" data-account-status-select data-account-id="${helpers.escapeHtml(account.id)}" aria-label="修改 ${helpers.escapeHtml(account.email || '163 号源')} 的状态">
+                ${buildStatusOptionsMarkup(getAccountStatus(account))}
               </select>
-              <button class="btn btn-outline btn-sm" type="button" data-account-action="set-category" data-account-id="${helpers.escapeHtml(account.id)}">改分类</button>
+              <button class="btn btn-outline btn-sm" type="button" data-account-action="set-status" data-account-id="${helpers.escapeHtml(account.id)}">改状态</button>
+            </div>
+          `;
+          const customCategory = getAccountCustomCategory(account);
+          const customCategoryEditor = `
+            <div class="mail163-account-custom-category-editor">
+              <input
+                class="data-input mail163-account-custom-category-input"
+                type="text"
+                list="mail163-custom-category-options"
+                value="${helpers.escapeHtml(customCategory)}"
+                placeholder="分类名"
+                data-account-custom-category-input
+                data-account-id="${helpers.escapeHtml(account.id)}"
+                aria-label="修改 ${helpers.escapeHtml(account.email || '163 号源')} 的自定义分类"
+              />
+              <button class="btn btn-outline btn-sm" type="button" data-account-action="set-custom-category" data-account-id="${helpers.escapeHtml(account.id)}">设分类</button>
             </div>
           `;
           return `
@@ -555,6 +692,7 @@
           <div class="hotmail-account-meta">
             <span>授权码：${account.authCode ? '已保存' : '未保存'}</span>
             <span>成功状态：${account.success ? '已成功' : '未成功'}</span>
+            <span>自定义分类：${helpers.escapeHtml(customCategory || '未分类')}</span>
             <span>重试次数：${helpers.escapeHtml(String(Number(account.retryCount) || 0))}</span>
             <span>上次结果：${helpers.escapeHtml(formatDateTime(account.lastResultAt))}</span>
             <span>上次成功：${helpers.escapeHtml(formatDateTime(account.lastUsedAt))}</span>
@@ -564,7 +702,8 @@
             <button class="btn btn-outline btn-sm" type="button" data-account-action="select" data-account-id="${helpers.escapeHtml(account.id)}">使用此账号</button>
             <button class="btn btn-outline btn-sm" type="button" data-account-action="test" data-account-id="${helpers.escapeHtml(account.id)}">测试</button>
             ${quickStatusButton}
-            ${categoryEditor}
+            ${statusEditor}
+            ${customCategoryEditor}
             <button class="btn btn-primary btn-sm" type="button" data-account-action="retry" data-account-id="${helpers.escapeHtml(account.id)}">重试</button>
             <button class="btn btn-ghost btn-sm" type="button" data-account-action="delete" data-account-id="${helpers.escapeHtml(account.id)}">删除</button>
           </div>
@@ -752,10 +891,10 @@
       return response.account;
     }
 
-    function buildMail163CategoryUpdates(targetCategory) {
-      const normalizedCategory = normalizeCategory(targetCategory, DEFAULT_MAIL163_BULK_CATEGORY);
+    function buildMail163StatusUpdates(targetStatus) {
+      const normalizedStatus = normalizeStatus(targetStatus, DEFAULT_MAIL163_BULK_STATUS);
       const now = Date.now();
-      switch (normalizedCategory) {
+      switch (normalizedStatus) {
         case 'success':
           return {
             status: 'success',
@@ -772,7 +911,7 @@
             success: false,
             used: false,
             disabled: false,
-            lastError: '手动移动到失败分类',
+            lastError: '手动移动到失败状态',
             lastResultAt: now,
           };
         case 'stopped':
@@ -781,7 +920,7 @@
             success: false,
             used: false,
             disabled: false,
-            lastError: '手动移动到已停止分类',
+            lastError: '手动移动到已停止状态',
             lastResultAt: now,
           };
         case 'running':
@@ -805,23 +944,23 @@
       }
     }
 
-    async function updateMail163AccountCategory(account, targetCategory) {
+    async function updateMail163AccountStatus(account, targetStatus) {
       if (!account?.id) {
-        throw new Error('未找到需要修改分类的 163 号源。');
+        throw new Error('未找到需要修改状态的 163 号源。');
       }
 
-      const normalizedTargetCategory = normalizeCategory(targetCategory, getAccountStatus(account));
-      if (getAccountStatus(account) === normalizedTargetCategory) {
+      const normalizedTargetStatus = normalizeStatus(targetStatus, getAccountStatus(account));
+      if (getAccountStatus(account) === normalizedTargetStatus) {
         return {
           changed: false,
           account,
-          targetCategory: normalizedTargetCategory,
+          targetStatus: normalizedTargetStatus,
         };
       }
 
       const nextAccount = await patchMail163AccountFromSidepanel(
         account.id,
-        buildMail163CategoryUpdates(normalizedTargetCategory)
+        buildMail163StatusUpdates(normalizedTargetStatus)
       );
       applyMail163AccountMutation(nextAccount, {
         preserveCurrentSelection: true,
@@ -830,7 +969,42 @@
       return {
         changed: true,
         account: nextAccount,
-        targetCategory: normalizedTargetCategory,
+        targetStatus: normalizedTargetStatus,
+      };
+    }
+
+    function buildMail163CustomCategoryUpdates(targetCustomCategory) {
+      return {
+        category: normalizeCustomCategory(targetCustomCategory),
+      };
+    }
+
+    async function updateMail163AccountCustomCategory(account, targetCustomCategory) {
+      if (!account?.id) {
+        throw new Error('未找到需要修改分类的 163 号源。');
+      }
+
+      const normalizedTargetCustomCategory = normalizeCustomCategory(targetCustomCategory);
+      if (getAccountCustomCategory(account) === normalizedTargetCustomCategory) {
+        return {
+          changed: false,
+          account,
+          targetCustomCategory: normalizedTargetCustomCategory,
+        };
+      }
+
+      const nextAccount = await patchMail163AccountFromSidepanel(
+        account.id,
+        buildMail163CustomCategoryUpdates(normalizedTargetCustomCategory)
+      );
+      applyMail163AccountMutation(nextAccount, {
+        preserveCurrentSelection: true,
+        syncEmailWhenSelected: true,
+      });
+      return {
+        changed: true,
+        account: nextAccount,
+        targetCustomCategory: normalizedTargetCustomCategory,
       };
     }
 
@@ -924,11 +1098,11 @@
 
       const accounts = getFilteredMail163Accounts();
       if (!accounts.length) {
-        helpers.showToast('当前筛选结果没有可移动分类的 163 号源。', 'warn');
+        helpers.showToast('当前筛选结果没有可移动状态的 163 号源。', 'warn');
         return;
       }
 
-      const targetCategory = getSelectedBulkCategory();
+      const targetStatus = getSelectedBulkStatus();
       const originalButtonText = String(dom.btnApplyMail163BulkCategory?.textContent || '');
       const summary = {
         total: accounts.length,
@@ -951,7 +1125,7 @@
           }
 
           try {
-            const result = await updateMail163AccountCategory(account, targetCategory);
+            const result = await updateMail163AccountStatus(account, targetStatus);
             if (result.changed) {
               summary.moved += 1;
             } else {
@@ -966,17 +1140,77 @@
           }
         }
 
-        const skippedText = summary.skipped > 0 ? `，跳过 ${summary.skipped} 条已在当前分类` : '';
+        const skippedText = summary.skipped > 0 ? `，跳过 ${summary.skipped} 条已在当前状态` : '';
         const failedText = summary.failed > 0 ? `，失败 ${summary.failed} 条` : '';
         helpers.showToast(
-          `批量改分类完成：共 ${summary.total} 条，已移动 ${summary.moved} 条到${getCategoryLabel(targetCategory)}${skippedText}${failedText}`,
+          `批量改状态完成：共 ${summary.total} 条，已移动 ${summary.moved} 条到${getStatusLabelByValue(targetStatus)}${skippedText}${failedText}`,
           summary.failed > 0 ? 'warn' : 'success',
           3200
         );
       } finally {
         actionInFlight = false;
         if (dom.btnApplyMail163BulkCategory) {
-          dom.btnApplyMail163BulkCategory.textContent = originalButtonText || getBulkCategoryActionText(getFilteredMail163Accounts().length);
+          dom.btnApplyMail163BulkCategory.textContent = originalButtonText || getBulkStatusActionText(getFilteredMail163Accounts().length);
+        }
+        renderMail163Accounts();
+      }
+    }
+
+    async function handleBulkSetMail163CustomCategory() {
+      if (actionInFlight) return;
+
+      const accounts = getFilteredMail163Accounts();
+      if (!accounts.length) {
+        helpers.showToast('当前筛选结果没有可设置分类的 163 号源。', 'warn');
+        return;
+      }
+
+      const targetCustomCategory = normalizeCustomCategory(dom.inputMail163BulkCustomCategory?.value);
+      const originalButtonText = String(dom.btnApplyMail163CustomCategory?.textContent || '');
+      const summary = {
+        total: accounts.length,
+        changed: 0,
+        skipped: 0,
+        failed: 0,
+      };
+
+      actionInFlight = true;
+      updateMail163ListViewport(state.getLatestState());
+      if (dom.btnApplyMail163CustomCategory) {
+        dom.btnApplyMail163CustomCategory.textContent = `批量设置中（0/${accounts.length}）`;
+      }
+
+      try {
+        for (let index = 0; index < accounts.length; index += 1) {
+          const account = accounts[index];
+          if (dom.btnApplyMail163CustomCategory) {
+            dom.btnApplyMail163CustomCategory.textContent = `批量设置中（${index + 1}/${accounts.length}）`;
+          }
+
+          try {
+            const result = await updateMail163AccountCustomCategory(account, targetCustomCategory);
+            if (result.changed) {
+              summary.changed += 1;
+            } else {
+              summary.skipped += 1;
+            }
+          } catch {
+            summary.failed += 1;
+          }
+        }
+
+        const targetLabel = targetCustomCategory || '未分类';
+        const skippedText = summary.skipped > 0 ? `，跳过 ${summary.skipped} 条已在当前分类` : '';
+        const failedText = summary.failed > 0 ? `，失败 ${summary.failed} 条` : '';
+        helpers.showToast(
+          `批量设分类完成：共 ${summary.total} 条，已设置 ${summary.changed} 条到${targetLabel}${skippedText}${failedText}`,
+          summary.failed > 0 ? 'warn' : 'success',
+          3200
+        );
+      } finally {
+        actionInFlight = false;
+        if (dom.btnApplyMail163CustomCategory) {
+          dom.btnApplyMail163CustomCategory.textContent = originalButtonText || getBulkCustomCategoryActionText(getFilteredMail163Accounts().length);
         }
         renderMail163Accounts();
       }
@@ -1020,9 +1254,14 @@
       helpers.showToast(`已删除全部 ${response.deletedCount || 0} 个 163 号源`, 'success', 2200);
     }
 
-    function getTargetCategoryFromActionButton(actionButton, fallbackCategory) {
-      const selectElement = actionButton?.parentElement?.querySelector?.('[data-account-category-select]');
-      return normalizeCategory(selectElement?.value, fallbackCategory);
+    function getTargetStatusFromActionButton(actionButton, fallbackStatus) {
+      const selectElement = actionButton?.parentElement?.querySelector?.('[data-account-status-select]');
+      return normalizeStatus(selectElement?.value, fallbackStatus);
+    }
+
+    function getTargetCustomCategoryFromActionButton(actionButton) {
+      const inputElement = actionButton?.parentElement?.querySelector?.('[data-account-custom-category-input]');
+      return normalizeCustomCategory(inputElement?.value);
     }
 
     async function handleAccountListClick(event) {
@@ -1090,16 +1329,36 @@
           return;
         }
 
-        if (action === 'set-category') {
-          const targetCategory = getTargetCategoryFromActionButton(actionButton, getAccountStatus(targetAccount));
-          const result = await updateMail163AccountCategory(targetAccount, targetCategory);
+        if (action === 'set-status') {
+          const targetStatus = getTargetStatusFromActionButton(actionButton, getAccountStatus(targetAccount));
+          const result = await updateMail163AccountStatus(targetAccount, targetStatus);
           if (!result.changed) {
-            helpers.showToast(`163 号源已在${getCategoryLabel(targetCategory)}分类：${targetAccount?.email || accountId}`, 'warn', 1800);
+            helpers.showToast(`163 号源已在${getStatusLabelByValue(targetStatus)}状态：${targetAccount?.email || accountId}`, 'warn', 1800);
             return;
           }
 
           helpers.showToast(
-            `已将 163 号源移动到${getCategoryLabel(targetCategory)}：${result.account.email}`,
+            `已将 163 号源移动到${getStatusLabelByValue(targetStatus)}状态：${result.account.email}`,
+            'success',
+            2200
+          );
+          return;
+        }
+
+        if (action === 'set-custom-category') {
+          const targetCustomCategory = getTargetCustomCategoryFromActionButton(actionButton);
+          const result = await updateMail163AccountCustomCategory(targetAccount, targetCustomCategory);
+          if (!result.changed) {
+            helpers.showToast(
+              `163 号源已在${targetCustomCategory || '未分类'}分类：${targetAccount?.email || accountId}`,
+              'warn',
+              1800
+            );
+            return;
+          }
+
+          helpers.showToast(
+            `已将 163 号源设置为${targetCustomCategory || '未分类'}分类：${result.account.email}`,
             'success',
             2200
           );
@@ -1245,20 +1504,33 @@
       });
 
       dom.selectMail163BulkCategory?.addEventListener('change', () => {
-        dom.selectMail163BulkCategory.value = getSelectedBulkCategory();
+        dom.selectMail163BulkCategory.value = getSelectedBulkStatus();
       });
 
       dom.btnApplyMail163BulkCategory?.addEventListener('click', async () => {
         try {
           await handleBulkMoveMail163Accounts();
         } catch (err) {
-          helpers.showToast(`批量改分类失败：${err.message}`, 'error');
+          helpers.showToast(`批量改状态失败：${err.message}`, 'error');
+        }
+      });
+
+      dom.selectMail163CustomCategoryFilter?.addEventListener('change', (event) => {
+        activeCustomCategoryFilter = normalizeCustomCategoryFilter(event.target.value);
+        renderMail163Accounts();
+      });
+
+      dom.btnApplyMail163CustomCategory?.addEventListener('click', async () => {
+        try {
+          await handleBulkSetMail163CustomCategory();
+        } catch (err) {
+          helpers.showToast(`批量设分类失败：${err.message}`, 'error');
         }
       });
 
       const filterButtons = Array.isArray(dom.mail163FilterButtons) ? dom.mail163FilterButtons : [];
       for (const button of filterButtons) {
-        button.dataset.filterLabelBase = String(button.textContent || MAIL163_FILTER_LABELS.all).trim();
+        button.dataset.filterLabelBase = String(button.textContent || MAIL163_STATUS_LABELS.all).trim();
         button.setAttribute('aria-pressed', String(normalizeFilter(button.dataset.mail163Filter) === activeFilter));
         button.addEventListener('click', () => {
           const nextFilter = normalizeFilter(button.dataset.mail163Filter);
@@ -1278,6 +1550,10 @@
       });
       dom.inputMail163Search?.addEventListener('input', (event) => {
         searchTerm = event.target.value || '';
+        renderMail163Accounts();
+      });
+      dom.inputMail163SearchExclude?.addEventListener('change', (event) => {
+        reverseSearch = Boolean(event.target?.checked);
         renderMail163Accounts();
       });
       dom.btnAddMail163Account?.addEventListener('click', handleAddMail163Account);

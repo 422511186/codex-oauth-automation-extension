@@ -163,12 +163,16 @@ const mail163Section = document.getElementById('mail163-section');
 const inputMail163HelperBaseUrl = document.getElementById('input-mail163-helper-base-url');
 const inputMail163Email = document.getElementById('input-mail163-email');
 const inputMail163AuthCode = document.getElementById('input-mail163-auth-code');
+const selectMail163CustomCategoryFilter = document.getElementById('select-mail163-custom-category-filter');
 const inputMail163Search = document.getElementById('input-mail163-search');
+const inputMail163SearchExclude = document.getElementById('input-mail163-search-exclude');
+const inputMail163BulkCustomCategory = document.getElementById('input-mail163-bulk-custom-category');
 const selectMail163BulkCategory = document.getElementById('select-mail163-bulk-category');
 const inputMail163Import = document.getElementById('input-mail163-import');
 const inputMail163ImportFile = document.getElementById('input-mail163-import-file');
 const btnAddMail163Account = document.getElementById('btn-add-mail163-account');
 const btnApplyMail163BulkCategory = document.getElementById('btn-apply-mail163-bulk-category');
+const btnApplyMail163CustomCategory = document.getElementById('btn-apply-mail163-custom-category');
 const btnBulkTestMail163Accounts = document.getElementById('btn-bulk-test-mail163-accounts');
 const btnExportMail163Accounts = document.getElementById('btn-export-mail163-accounts');
 const btnLoadMail163File = document.getElementById('btn-load-mail163-file');
@@ -179,6 +183,7 @@ const btnToggleMail163List = document.getElementById('btn-toggle-mail163-list');
 const mail163FormShell = document.getElementById('mail163-form-shell');
 const mail163ListShell = document.getElementById('mail163-list-shell');
 const mail163AccountsList = document.getElementById('mail163-accounts-list');
+const mail163CustomCategoryOptions = document.getElementById('mail163-custom-category-options');
 const mail163FilterButtons = Array.from(document.querySelectorAll('[data-mail163-filter]'));
 const inputMail2925Email = document.getElementById('input-mail2925-email');
 const inputMail2925Password = document.getElementById('input-mail2925-password');
@@ -3355,6 +3360,7 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
   dom: {
     btnAddMail163Account,
     btnApplyMail163BulkCategory,
+    btnApplyMail163CustomCategory,
     btnBulkTestMail163Accounts,
     btnExportMail163Accounts,
     btnDeleteAllMail163Accounts,
@@ -3364,12 +3370,16 @@ const mail163Manager = window.SidepanelMail163Manager?.createMail163Manager({
     btnToggleMail163List,
     inputEmail,
     inputMail163AuthCode,
+    inputMail163BulkCustomCategory,
     selectMail163BulkCategory,
+    selectMail163CustomCategoryFilter,
     inputMail163Email,
     inputMail163Search,
+    inputMail163SearchExclude,
     inputMail163Import,
     inputMail163ImportFile,
     mail163AccountsList,
+    mail163CustomCategoryOptions,
     mail163FilterButtons,
     mail163FormShell,
     mail163ListShell,

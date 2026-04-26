@@ -16,6 +16,10 @@
     return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
   }
 
+  function normalizeMail163Category(value) {
+    return String(value || '').trim();
+  }
+
   function normalizeStatus(value) {
     const normalized = String(value || '').trim().toLowerCase();
     if (['idle', 'running', 'success', 'failed', 'stopped'].includes(normalized)) {
@@ -34,6 +38,7 @@
       id: String(account.id || crypto.randomUUID()),
       email: String(account.email || '').trim().toLowerCase(),
       authCode: String(account.authCode ?? account.password ?? '').trim(),
+      category: normalizeMail163Category(account.category),
       status: success ? 'success' : status,
       success,
       used: account.used !== undefined ? Boolean(account.used) : success,
@@ -122,6 +127,7 @@
   return {
     findMail163Account,
     isMail163AccountRunnable,
+    normalizeMail163Category,
     normalizeMail163Account,
     normalizeMail163Accounts,
     normalizeStatus,

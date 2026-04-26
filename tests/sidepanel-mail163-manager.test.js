@@ -113,6 +113,17 @@ function createSelectStub(value = '') {
   };
 }
 
+function createCheckboxStub(checked = false) {
+  return {
+    checked,
+    disabled: false,
+    listeners: {},
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+  };
+}
+
 function loadMail163ManagerApi() {
   const source = fs.readFileSync('sidepanel/mail-163-manager.js', 'utf8');
   const windowObject = {
@@ -142,16 +153,28 @@ test('sidepanel loads mail163 manager before sidepanel bootstrap', () => {
   assert.notEqual(mail163ManagerIndex, -1);
   assert.notEqual(sidepanelIndex, -1);
   assert.match(html, /id="input-mail163-search"/);
+  assert.match(html, /id="input-mail163-search-exclude"/);
+  assert.match(html, /id="select-mail163-custom-category-filter"/);
+  assert.match(html, /id="input-mail163-bulk-custom-category"/);
+  assert.match(html, /id="btn-apply-mail163-custom-category"/);
   assert.match(html, /id="select-mail163-bulk-category"/);
   assert.match(html, /id="btn-apply-mail163-bulk-category"/);
   assert.match(html, /id="btn-bulk-test-mail163-accounts"/);
   assert.match(sidepanelSource, /const inputMail163Search = document\.getElementById\('input-mail163-search'\);/);
+  assert.match(sidepanelSource, /const inputMail163SearchExclude = document\.getElementById\('input-mail163-search-exclude'\);/);
+  assert.match(sidepanelSource, /const selectMail163CustomCategoryFilter = document\.getElementById\('select-mail163-custom-category-filter'\);/);
+  assert.match(sidepanelSource, /const inputMail163BulkCustomCategory = document\.getElementById\('input-mail163-bulk-custom-category'\);/);
+  assert.match(sidepanelSource, /const btnApplyMail163CustomCategory = document\.getElementById\('btn-apply-mail163-custom-category'\);/);
   assert.match(sidepanelSource, /const selectMail163BulkCategory = document\.getElementById\('select-mail163-bulk-category'\);/);
   assert.match(sidepanelSource, /const btnApplyMail163BulkCategory = document\.getElementById\('btn-apply-mail163-bulk-category'\);/);
   assert.match(sidepanelSource, /const btnBulkTestMail163Accounts = document\.getElementById\('btn-bulk-test-mail163-accounts'\);/);
+  assert.match(sidepanelSource, /btnApplyMail163CustomCategory,/);
   assert.match(sidepanelSource, /btnApplyMail163BulkCategory,/);
   assert.match(sidepanelSource, /btnBulkTestMail163Accounts,/);
+  assert.match(sidepanelSource, /inputMail163BulkCustomCategory,/);
   assert.match(sidepanelSource, /inputMail163Search,/);
+  assert.match(sidepanelSource, /inputMail163SearchExclude,/);
+  assert.match(sidepanelSource, /selectMail163CustomCategoryFilter,/);
   assert.match(sidepanelSource, /selectMail163BulkCategory,/);
   assert.ok(helperIndex < mail163ManagerIndex);
   assert.ok(mail163ManagerIndex < sidepanelIndex);
@@ -334,6 +357,7 @@ test('mail163 manager filters current list and exports filtered backup json data
   const downloads = [];
   const toasts = [];
   const btnExportMail163Accounts = createButtonStub();
+  const inputMail163SearchExclude = createCheckboxStub(false);
   const inputMail163Search = {
     value: '',
     listeners: {},
@@ -344,6 +368,7 @@ test('mail163 manager filters current list and exports filtered backup json data
   const filterAllButton = createFilterButton('all', '全部');
   const filterFailedButton = createFilterButton('failed', '失败');
   const filterSuccessButton = createFilterButton('success', '成功');
+  const selectMail163CustomCategoryFilter = createSelectStub('__all__');
   const mail163AccountsList = {
     innerHTML: '',
     addEventListener() {},
@@ -366,6 +391,7 @@ test('mail163 manager filters current list and exports filtered backup json data
         id: 'failed-1',
         email: 'failed-1@163.com',
         authCode: 'failed-auth',
+        category: '高优先',
         status: 'failed',
         success: false,
         retryCount: 1,
@@ -415,16 +441,21 @@ test('mail163 manager filters current list and exports filtered backup json data
       btnToggleMail163List: createButtonStub(),
       inputEmail: { value: 'failed-1@163.com' },
       inputMail163Search,
+      inputMail163SearchExclude,
+      selectMail163CustomCategoryFilter,
       inputMail163AuthCode: { value: '' },
       inputMail163Email: { value: '', focus() {} },
+      inputMail163BulkCustomCategory: createSelectStub(''),
       inputMail163Import: { value: '' },
       inputMail163ImportFile: { addEventListener() {} },
+      mail163CustomCategoryOptions: { innerHTML: '' },
       mail163AccountsList,
       mail163FilterButtons: [
         filterAllButton,
         filterFailedButton,
         filterSuccessButton,
       ],
+      btnApplyMail163CustomCategory: createButtonStub(),
       mail163FormShell: { hidden: true },
       mail163ListShell: { classList: createClassListStub() },
       selectMailProvider: { value: '163' },
@@ -469,12 +500,14 @@ test('mail163 manager filters current list and exports filtered backup json data
   const exportedBundle = JSON.parse(downloads[0].content);
   assert.equal(exportedBundle.type, 'mail163-account-pool');
   assert.equal(exportedBundle.filter, 'failed');
+  assert.equal(exportedBundle.customCategoryFilter, '__all__');
   assert.equal(exportedBundle.count, 1);
   assert.deepStrictEqual(exportedBundle.accounts, [
     {
       id: 'failed-1',
       email: 'failed-1@163.com',
       authCode: 'failed-auth',
+      category: '高优先',
       status: 'failed',
       success: false,
       used: false,
@@ -495,13 +528,35 @@ test('mail163 manager filters current list and exports filtered backup json data
   assert.match(mail163AccountsList.innerHTML, /failed-1@163\.com/);
   assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-2@163\.com/);
 
+  inputMail163SearchExclude.checked = true;
+  inputMail163SearchExclude.listeners.change({ target: inputMail163SearchExclude });
+  assert.match(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+
   inputMail163Search.value = '超时';
   inputMail163Search.listeners.input({ target: inputMail163Search });
+  assert.match(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+
+  inputMail163SearchExclude.checked = false;
+  inputMail163SearchExclude.listeners.change({ target: inputMail163SearchExclude });
   assert.match(mail163AccountsList.innerHTML, /failed-2@163\.com/);
   assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-1@163\.com/);
 
   inputMail163Search.value = '';
   inputMail163Search.listeners.input({ target: inputMail163Search });
+  selectMail163CustomCategoryFilter.value = '高优先';
+  selectMail163CustomCategoryFilter.listeners.change({ target: selectMail163CustomCategoryFilter });
+  assert.match(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+
+  selectMail163CustomCategoryFilter.value = '__uncategorized__';
+  selectMail163CustomCategoryFilter.listeners.change({ target: selectMail163CustomCategoryFilter });
+  assert.match(mail163AccountsList.innerHTML, /failed-2@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /failed-1@163\.com/);
+
+  selectMail163CustomCategoryFilter.value = '__all__';
+  selectMail163CustomCategoryFilter.listeners.change({ target: selectMail163CustomCategoryFilter });
   const failed2Index = mail163AccountsList.innerHTML.indexOf('failed-2@163.com');
   const failed1Index = mail163AccountsList.innerHTML.indexOf('failed-1@163.com');
   assert.notEqual(failed2Index, -1);
@@ -522,6 +577,7 @@ test('mail163 manager imports backup json and preserves statuses', async () => {
         id: 'acc-success',
         email: 'success@163.com',
         authCode: 'success-auth',
+        category: '已验证',
         status: 'success',
         success: true,
         used: true,
@@ -571,12 +627,16 @@ test('mail163 manager imports backup json and preserves statuses', async () => {
       btnToggleMail163List: createButtonStub(),
       inputEmail: { value: '' },
       inputMail163Search: { value: '', addEventListener() {} },
+      selectMail163CustomCategoryFilter: createSelectStub('__all__'),
       inputMail163AuthCode: { value: '' },
+      inputMail163BulkCustomCategory: createSelectStub(''),
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: importPayload },
       inputMail163ImportFile: { addEventListener() {} },
+      mail163CustomCategoryOptions: { innerHTML: '' },
       mail163AccountsList: { innerHTML: '', addEventListener() {} },
       mail163FilterButtons: [createFilterButton('all', '全部')],
+      btnApplyMail163CustomCategory: createButtonStub(),
       mail163FormShell: { hidden: true },
       mail163ListShell: { classList: createClassListStub() },
       selectMailProvider: { value: '163' },
@@ -617,6 +677,7 @@ test('mail163 manager imports backup json and preserves statuses', async () => {
     id: 'acc-success',
     email: 'success@163.com',
     authCode: 'success-auth',
+    category: '已验证',
     status: 'success',
     success: true,
     used: true,
@@ -716,16 +777,20 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
       btnToggleMail163List: createButtonStub(),
       inputEmail,
       inputMail163Search: { value: '', addEventListener() {} },
+      selectMail163CustomCategoryFilter: createSelectStub('__all__'),
       inputMail163AuthCode: { value: '' },
+      inputMail163BulkCustomCategory: createSelectStub(''),
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: '' },
       inputMail163ImportFile: { addEventListener() {} },
+      mail163CustomCategoryOptions: { innerHTML: '' },
       mail163AccountsList,
       mail163FilterButtons: [
         createFilterButton('all', '全部'),
         createFilterButton('failed', '失败'),
         createFilterButton('success', '成功'),
       ],
+      btnApplyMail163CustomCategory: createButtonStub(),
       mail163FormShell: { hidden: true },
       mail163ListShell: { classList: createClassListStub() },
       selectMailProvider: { value: '163' },
@@ -787,6 +852,8 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
   assert.match(mail163AccountsList.innerHTML, /idle-1@163\.com[\s\S]*data-account-action="mark-success"/);
   assert.match(mail163AccountsList.innerHTML, /data-account-action="mark-success"/);
   assert.match(mail163AccountsList.innerHTML, /data-account-action="mark-failed"/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="set-status"/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="set-custom-category"/);
 
   manager.bindMail163Events();
 
@@ -865,7 +932,7 @@ test('mail163 manager can quickly toggle idle, failed, and success statuses', as
   assert.equal(toasts.at(-1)?.level, 'success');
 });
 
-test('mail163 manager bulk moves filtered accounts and supports single-item category changes', async () => {
+test('mail163 manager bulk moves filtered accounts and supports single-item status changes', async () => {
   const api = loadMail163ManagerApi();
   const handlers = {};
   const messages = [];
@@ -959,16 +1026,20 @@ test('mail163 manager bulk moves filtered accounts and supports single-item cate
       btnToggleMail163List: createButtonStub(),
       inputEmail: { value: 'failed-1@163.com' },
       inputMail163Search,
+      selectMail163CustomCategoryFilter: createSelectStub('__all__'),
       inputMail163AuthCode: { value: '' },
+      inputMail163BulkCustomCategory: createSelectStub(''),
       inputMail163Email: { value: '', focus() {} },
       inputMail163Import: { value: '' },
       inputMail163ImportFile: { addEventListener() {} },
+      mail163CustomCategoryOptions: { innerHTML: '' },
       mail163AccountsList,
       mail163FilterButtons: [
         filterAllButton,
         filterIdleButton,
         createFilterButton('failed', '失败'),
       ],
+      btnApplyMail163CustomCategory: createButtonStub(),
       mail163FormShell: { hidden: true },
       mail163ListShell: { classList: createClassListStub() },
       selectMail163BulkCategory,
@@ -1009,8 +1080,8 @@ test('mail163 manager bulk moves filtered accounts and supports single-item cate
   });
 
   manager.renderMail163Accounts();
-  assert.match(mail163AccountsList.innerHTML, /data-account-action="set-category"/);
-  assert.match(mail163AccountsList.innerHTML, /data-account-category-select/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="set-status"/);
+  assert.match(mail163AccountsList.innerHTML, /data-account-status-select/);
 
   manager.bindMail163Events();
   filterIdleButton.click();
@@ -1023,7 +1094,7 @@ test('mail163 manager bulk moves filtered accounts and supports single-item cate
   assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-1')?.status, 'failed');
   assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-2')?.status, 'failed');
   assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-stay')?.status, 'idle');
-  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-1')?.lastError, '手动移动到失败分类');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-move-1')?.lastError, '手动移动到失败状态');
   assert.match(toasts.at(-1)?.message || '', /已移动 2 条到失败/);
 
   await handlers.listClick({
@@ -1031,7 +1102,7 @@ test('mail163 manager bulk moves filtered accounts and supports single-item cate
       closest() {
         return {
           dataset: {
-            accountAction: 'set-category',
+            accountAction: 'set-status',
             accountId: 'failed-1',
           },
           disabled: false,
@@ -1048,7 +1119,193 @@ test('mail163 manager bulk moves filtered accounts and supports single-item cate
   assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-1')?.status, 'idle');
   assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-1')?.lastError, '');
   assert.equal(messages.filter((message) => message.type === 'PATCH_MAIL163_ACCOUNT').length, 3);
-  assert.match(toasts.at(-1)?.message || '', /移动到未执行/);
+  assert.match(toasts.at(-1)?.message || '', /移动到未执行状态/);
+});
+
+test('mail163 manager supports arbitrary custom categories for bulk set, filtering, and single-item updates', async () => {
+  const api = loadMail163ManagerApi();
+  const handlers = {};
+  const messages = [];
+  const toasts = [];
+  const btnApplyMail163CustomCategory = createButtonStub();
+  const inputMail163BulkCustomCategory = createSelectStub('项目A');
+  const selectMail163CustomCategoryFilter = createSelectStub('__all__');
+  const inputMail163Search = createSelectStub('');
+  const filterAllButton = createFilterButton('all', '全部');
+  const filterIdleButton = createFilterButton('idle', '未执行');
+  const filterFailedButton = createFilterButton('failed', '失败');
+  const mail163AccountsList = {
+    innerHTML: '',
+    addEventListener(type, handler) {
+      if (type === 'click') handlers.listClick = handler;
+    },
+  };
+  const stateStore = {
+    currentMail163AccountId: null,
+    email: '',
+    mail163Accounts: [
+      {
+        id: 'idle-a',
+        email: 'alpha@163.com',
+        authCode: 'auth-a',
+        category: '',
+        status: 'idle',
+        success: false,
+        used: false,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'idle-b',
+        email: 'beta@163.com',
+        authCode: 'auth-b',
+        category: '',
+        status: 'idle',
+        success: false,
+        used: false,
+        retryCount: 0,
+        lastError: '',
+        lastResultAt: 0,
+        lastUsedAt: 0,
+      },
+      {
+        id: 'failed-c',
+        email: 'legacy@163.com',
+        authCode: 'auth-c',
+        category: '旧分类',
+        status: 'failed',
+        success: false,
+        used: false,
+        retryCount: 1,
+        lastError: 'old error',
+        lastResultAt: 10,
+        lastUsedAt: 0,
+      },
+    ],
+  };
+
+  const manager = api.createMail163Manager({
+    state: {
+      getLatestState: () => stateStore,
+      syncLatestState: (updates) => {
+        Object.assign(stateStore, updates);
+      },
+    },
+    dom: {
+      btnAddMail163Account: createButtonStub(),
+      btnApplyMail163BulkCategory: createButtonStub(),
+      btnApplyMail163CustomCategory,
+      btnBulkTestMail163Accounts: createButtonStub(),
+      btnDeleteAllMail163Accounts: createButtonStub(),
+      btnExportMail163Accounts: createButtonStub(),
+      btnImportMail163Accounts: createButtonStub(),
+      btnLoadMail163File: createButtonStub(),
+      btnToggleMail163Form: createButtonStub(),
+      btnToggleMail163List: createButtonStub(),
+      inputEmail: { value: '' },
+      inputMail163Search,
+      selectMail163CustomCategoryFilter,
+      inputMail163AuthCode: { value: '' },
+      inputMail163BulkCustomCategory,
+      inputMail163Email: { value: '', focus() {} },
+      inputMail163Import: { value: '' },
+      inputMail163ImportFile: { addEventListener() {} },
+      mail163CustomCategoryOptions: { innerHTML: '' },
+      mail163AccountsList,
+      mail163FilterButtons: [
+        filterAllButton,
+        filterIdleButton,
+        filterFailedButton,
+      ],
+      mail163FormShell: { hidden: true },
+      mail163ListShell: { classList: createClassListStub() },
+      selectMail163BulkCategory: createSelectStub('idle'),
+      selectMailProvider: { value: '163' },
+    },
+    helpers: {
+      getMail163Accounts: (currentState = stateStore) => currentState.mail163Accounts,
+      escapeHtml: (value) => String(value || ''),
+      showToast(message, level) {
+        toasts.push({ message, level });
+      },
+      openConfirmModal: async () => true,
+      copyTextToClipboard: async () => {},
+      downloadTextFile() {},
+    },
+    runtime: {
+      sendMessage: async (message) => {
+        messages.push(message);
+        if (message.type !== 'PATCH_MAIL163_ACCOUNT') {
+          throw new Error(`unexpected message type: ${message.type}`);
+        }
+        const sourceAccount = stateStore.mail163Accounts.find((account) => account.id === message.payload.accountId);
+        return {
+          ok: true,
+          account: {
+            ...sourceAccount,
+            ...message.payload.updates,
+          },
+        };
+      },
+    },
+    constants: {
+      copyIcon: '',
+      displayTimeZone: 'Asia/Shanghai',
+      expandedStorageKey: 'multipage-mail163-list-expanded',
+    },
+    mail163Utils: {},
+  });
+
+  manager.bindMail163Events();
+  manager.renderMail163Accounts();
+  assert.match(mail163AccountsList.innerHTML, /data-account-action="set-custom-category"/);
+  assert.match(mail163AccountsList.innerHTML, /自定义分类：旧分类/);
+
+  filterIdleButton.click();
+  await btnApplyMail163CustomCategory.listeners.click();
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-a')?.category, '项目A');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'idle-b')?.category, '项目A');
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-c')?.category, '旧分类');
+  assert.match(toasts.at(-1)?.message || '', /已设置 2 条到项目A/);
+
+  selectMail163CustomCategoryFilter.value = '项目A';
+  selectMail163CustomCategoryFilter.listeners.change({ target: selectMail163CustomCategoryFilter });
+  assert.match(mail163AccountsList.innerHTML, /alpha@163\.com/);
+  assert.match(mail163AccountsList.innerHTML, /beta@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /legacy@163\.com/);
+
+  filterAllButton.click();
+  await handlers.listClick({
+    target: {
+      closest() {
+        return {
+          dataset: {
+            accountAction: 'set-custom-category',
+            accountId: 'failed-c',
+          },
+          disabled: false,
+          parentElement: {
+            querySelector() {
+              return { value: '人工池' };
+            },
+          },
+        };
+      },
+    },
+  });
+
+  assert.equal(stateStore.mail163Accounts.find((account) => account.id === 'failed-c')?.category, '人工池');
+  assert.match(toasts.at(-1)?.message || '', /设置为人工池分类/);
+
+  selectMail163CustomCategoryFilter.value = '人工池';
+  selectMail163CustomCategoryFilter.listeners.change({ target: selectMail163CustomCategoryFilter });
+  assert.match(mail163AccountsList.innerHTML, /legacy@163\.com/);
+  assert.doesNotMatch(mail163AccountsList.innerHTML, /alpha@163\.com/);
+  assert.ok(messages.some((message) => message.payload?.updates?.category === '项目A'));
+  assert.ok(messages.some((message) => message.payload?.updates?.category === '人工池'));
 });
 
 test('mail163 manager bulk tests current filter and moves accounts between failed, stopped, and idle lists', async () => {

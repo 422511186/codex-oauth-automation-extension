@@ -1164,6 +1164,28 @@ header {
   flex: 1;
 }
 
+.mail163-search-inline {
+  width: 100%;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.mail163-search-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mail163-search-toggle input {
+  margin: 0;
+}
+
 .mail163-bulk-category-row {
   align-items: center;
 }
@@ -1174,7 +1196,19 @@ header {
   flex-wrap: wrap;
 }
 
+.mail163-custom-category-inline {
+  width: 100%;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .mail163-bulk-category-select {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.mail163-custom-category-filter,
+.mail163-custom-category-input {
   flex: 1 1 160px;
   min-width: 0;
 }
@@ -1343,6 +1377,18 @@ header {
 
 .mail163-account-category-select {
   min-width: 112px;
+}
+
+.mail163-account-custom-category-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mail163-account-custom-category-input {
+  min-width: 128px;
+  width: 168px;
 }
 
 .hotmail-empty {
